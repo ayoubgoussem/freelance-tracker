@@ -1,0 +1,3664 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FreelanceTracker — Suivi de revenus</title>
+  <meta name="description" content="Application de suivi des revenus journaliers pour auto-entrepreneurs. Gérez vos journées, heures, primes et péages." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+
+  <!-- Firebase compat SDKs -->
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
+
+  <style>
+    /* ===================== DESIGN TOKENS ===================== */
+    :root {
+      --bg-primary: #0a0b14;
+      --bg-secondary: #111220;
+      --bg-card: rgba(255,255,255,0.04);
+      --bg-card-hover: rgba(255,255,255,0.07);
+      --border: rgba(255,255,255,0.08);
+      --border-glow: rgba(139,92,246,0.4);
+
+      --accent: #8b5cf6;
+      --accent-light: #a78bfa;
+      --accent-dark: #6d28d9;
+      --accent-glow: rgba(139,92,246,0.25);
+
+      --emerald: #10b981;
+      --emerald-glow: rgba(16,185,129,0.2);
+      --rose: #f43f5e;
+      --rose-glow: rgba(244,63,94,0.2);
+      --amber: #f59e0b;
+      --amber-glow: rgba(245,158,11,0.2);
+      --sky: #0ea5e9;
+
+      --text-primary: #f1f5f9;
+      --text-secondary: #94a3b8;
+      --text-muted: #475569;
+
+      --radius: 16px;
+      --radius-sm: 10px;
+      --shadow: 0 8px 32px rgba(0,0,0,0.4);
+      --shadow-glow: 0 0 40px rgba(139,92,246,0.15);
+    }
+
+    /* ===================== RESET & BASE ===================== */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; }
+    body {
+      font-family: 'Inter', system-ui, sans-serif;
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* Background animated grid */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background-image:
+        linear-gradient(rgba(139,92,246,0.03) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(139,92,246,0.03) 1px, transparent 1px);
+      background-size: 40px 40px;
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    /* Animated orbs */
+    body::after {
+      content: '';
+      position: fixed;
+      top: -200px; right: -200px;
+      width: 600px; height: 600px;
+      background: radial-gradient(circle, rgba(139,92,246,0.12) 0%, transparent 70%);
+      pointer-events: none;
+      z-index: 0;
+      animation: float 8s ease-in-out infinite;
+    }
+
+    @keyframes float {
+      0%, 100% { transform: translateY(0px) scale(1); }
+      50% { transform: translateY(30px) scale(1.05); }
+    }
+
+    /* ===================== LAYOUT ===================== */
+    .app-wrapper { position: relative; z-index: 1; }
+
+    /* ===================== HEADER ===================== */
+    .header {
+      padding: 24px 32px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      row-gap: 12px;
+      border-bottom: 1px solid var(--border);
+      backdrop-filter: blur(20px);
+      background: rgba(10,11,20,0.8);
+      position: sticky; top: 0; z-index: 100;
+    }
+
+    .header-brand {
+      display: flex; align-items: center; gap: 12px;
+    }
+
+    .logo {
+      width: 40px; height: 40px;
+      background: linear-gradient(135deg, var(--accent), var(--sky));
+      border-radius: 12px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 20px;
+      box-shadow: 0 0 20px var(--accent-glow);
+    }
+
+    .brand-name {
+      font-size: 22px;
+      font-weight: 800;
+      background: linear-gradient(135deg, #fff 30%, var(--accent-light));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .header-year {
+      font-size: 13px;
+      color: var(--text-secondary);
+      font-weight: 500;
+    }
+
+    .header-actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+
+    .year-selector {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      color: var(--text-primary);
+      padding: 8px 16px;
+      border-radius: var(--radius-sm);
+      font-family: 'Inter', sans-serif;
+      font-size: 14px;
+      cursor: pointer;
+      transition: border-color 0.2s;
+    }
+    .year-selector:hover { border-color: var(--accent); }
+
+    /* ===================== NAV TABS ===================== */
+    .nav-tabs {
+      display: flex;
+      justify-content: center;
+      gap: 4px;
+      padding: 16px 32px;
+      border-bottom: 1px solid var(--border);
+      overflow-x: auto;
+    }
+
+    .tab-btn {
+      display: flex; align-items: center; gap: 8px;
+      padding: 10px 20px;
+      background: transparent;
+      border: 1px solid transparent;
+      border-radius: var(--radius-sm);
+      color: var(--text-secondary);
+      font-family: 'Inter', sans-serif;
+      font-size: 14px; font-weight: 500;
+      cursor: pointer;
+      transition: all 0.2s;
+      white-space: nowrap;
+    }
+    .tab-btn:hover { background: var(--bg-card); color: var(--text-primary); }
+    .tab-btn.active {
+      background: var(--accent-glow);
+      border-color: var(--accent);
+      color: var(--accent-light);
+    }
+
+    .tab-icon { font-size: 16px; }
+
+    /* ===================== MAIN CONTENT ===================== */
+    .main { padding: 32px; max-width: 1400px; margin: 0 auto; }
+
+    .page { display: none; }
+    .page.active { display: block; animation: fadeIn 0.3s ease; }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(8px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    /* ===================== STATS GRID ===================== */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 16px;
+      margin-bottom: 32px;
+    }
+
+    .stat-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 24px;
+      position: relative;
+      overflow: hidden;
+      transition: all 0.3s;
+      cursor: default;
+    }
+    .stat-card::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 2px;
+      background: linear-gradient(90deg, transparent, var(--accent-color, var(--accent)), transparent);
+    }
+    .stat-card:hover {
+      transform: translateY(-4px);
+      box-shadow: var(--shadow), 0 0 30px var(--accent-glow);
+      border-color: var(--border-glow);
+      background: var(--bg-card-hover);
+    }
+
+    .stat-icon {
+      font-size: 28px;
+      margin-bottom: 12px;
+      display: block;
+    }
+
+    .stat-label {
+      font-size: 12px;
+      color: var(--text-secondary);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      font-weight: 600;
+      margin-bottom: 6px;
+    }
+
+    .stat-value {
+      font-size: 28px;
+      font-weight: 800;
+      color: var(--text-primary);
+      line-height: 1;
+      margin-bottom: 4px;
+    }
+
+    .stat-sub {
+      font-size: 12px;
+      color: var(--text-muted);
+      margin-top: 8px;
+    }
+
+    /* ===================== SECTION HEADER ===================== */
+    .section-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 20px;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+
+    .section-title {
+      font-size: 20px;
+      font-weight: 700;
+      color: var(--text-primary);
+      display: flex; align-items: center; gap: 10px;
+    }
+
+    /* ===================== BUTTONS ===================== */
+    .btn {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 10px 20px;
+      border-radius: var(--radius-sm);
+      font-family: 'Inter', sans-serif;
+      font-size: 14px; font-weight: 600;
+      cursor: pointer;
+      border: none;
+      transition: all 0.2s;
+      text-decoration: none;
+      white-space: nowrap;
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, var(--accent), var(--accent-dark));
+      color: white;
+      box-shadow: 0 4px 15px var(--accent-glow);
+    }
+    .btn-primary:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 25px var(--accent-glow);
+    }
+
+    .btn-ghost {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      color: var(--text-secondary);
+    }
+    .btn-ghost:hover { background: var(--bg-card-hover); color: var(--text-primary); border-color: var(--accent); }
+
+    .btn-success {
+      background: linear-gradient(135deg, var(--emerald), #059669);
+      color: white;
+      box-shadow: 0 4px 15px var(--emerald-glow);
+    }
+    .btn-success:hover { transform: translateY(-2px); box-shadow: 0 8px 25px var(--emerald-glow); }
+
+    .btn-danger {
+      background: transparent;
+      border: 1px solid var(--rose);
+      color: var(--rose);
+      padding: 6px 12px;
+      font-size: 12px;
+    }
+    .btn-danger:hover { background: var(--rose-glow); }
+
+    .btn-sm { padding: 6px 14px; font-size: 13px; }
+    .btn-icon { padding: 8px; border-radius: 8px; }
+
+    /* ===================== FORMS ===================== */
+    .form-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 28px;
+      margin-bottom: 24px;
+    }
+
+    .form-title {
+      font-size: 16px;
+      font-weight: 700;
+      margin-bottom: 20px;
+      color: var(--text-primary);
+      display: flex; align-items: center; gap: 8px;
+    }
+
+    .form-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 16px;
+      align-items: end;
+    }
+
+    .form-group { display: flex; flex-direction: column; gap: 8px; }
+
+    .form-label {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-secondary);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+
+    .form-input, .form-select {
+      background: rgba(255,255,255,0.05);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      color: var(--text-primary);
+      font-family: 'Inter', sans-serif;
+      font-size: 14px;
+      padding: 10px 14px;
+      transition: all 0.2s;
+      outline: none;
+      width: 100%;
+    }
+    .form-input:focus, .form-select:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-glow);
+      background: rgba(139,92,246,0.07);
+    }
+    .form-select option { background: #1a1b2e; color: var(--text-primary); }
+
+    .form-input::placeholder { color: var(--text-muted); }
+
+    /* ===================== TABLE ===================== */
+    .table-wrapper {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+    }
+
+    .table-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--border);
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .filter-bar {
+      display: flex; gap: 8px; flex-wrap: wrap; align-items: center;
+    }
+
+    .filter-chip {
+      padding: 6px 14px;
+      border-radius: 20px;
+      font-size: 12px; font-weight: 600;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      color: var(--text-secondary);
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .filter-chip:hover, .filter-chip.active {
+      background: var(--accent-glow);
+      border-color: var(--accent);
+      color: var(--accent-light);
+    }
+
+    .data-table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    .data-table th {
+      padding: 12px 16px;
+      text-align: left;
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--text-muted);
+      background: rgba(255,255,255,0.02);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .data-table td {
+      padding: 14px 16px;
+      font-size: 14px;
+      color: var(--text-secondary);
+      border-bottom: 1px solid rgba(255,255,255,0.04);
+      transition: background 0.15s;
+    }
+
+    .data-table tr:hover td { background: var(--bg-card-hover); }
+    .data-table tr:last-child td { border-bottom: none; }
+
+    .amount-positive { color: var(--emerald); font-weight: 700; }
+    .amount-negative { color: var(--rose); font-weight: 700; }
+    .amount-pending { color: var(--amber); font-weight: 700; }
+
+    /* Badge */
+    .badge {
+      display: inline-flex; align-items: center;
+      padding: 3px 10px;
+      border-radius: 20px;
+      font-size: 11px; font-weight: 700;
+      text-transform: uppercase;
+    }
+    .badge-day { background: rgba(14,165,233,0.15); color: var(--sky); }
+    .badge-hour { background: rgba(139,92,246,0.15); color: var(--accent-light); }
+    .badge-paid { background: rgba(16,185,129,0.15); color: var(--emerald); }
+    .badge-pending { background: rgba(245,158,11,0.15); color: var(--amber); }
+
+    .empty-state {
+      text-align: center;
+      padding: 60px 20px;
+      color: var(--text-muted);
+    }
+    .empty-state .empty-icon { font-size: 48px; margin-bottom: 12px; }
+    .empty-state p { font-size: 15px; }
+
+    /* ===================== MODAL ===================== */
+    .modal-overlay {
+      display: none;
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,0.7);
+      backdrop-filter: blur(8px);
+      z-index: 1000;
+      align-items: center;
+      justify-content: center;
+    }
+    .modal-overlay.open { display: flex; animation: fadeIn 0.2s ease; }
+    /* Confirmation dialog can be opened from within the day/month detail modal — always keep it on top */
+    #confirmModal { z-index: 1001; }
+
+    .modal {
+      background: #141525;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 32px;
+      width: 90%; max-width: 520px;
+      box-shadow: var(--shadow), 0 0 60px rgba(139,92,246,0.1);
+    }
+
+    .modal-title {
+      font-size: 20px;
+      font-weight: 700;
+      margin-bottom: 24px;
+      display: flex; align-items: center; gap: 10px;
+    }
+
+    .modal-actions {
+      display: flex; justify-content: flex-end; gap: 10px;
+      margin-top: 24px;
+    }
+
+    /* ===================== MONTH SELECTOR ===================== */
+    .months-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 8px;
+      margin-bottom: 24px;
+    }
+
+    .month-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 14px 10px;
+      text-align: center;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .month-card:hover { border-color: var(--accent); background: var(--bg-card-hover); }
+    .month-card.active {
+      border-color: var(--accent);
+      background: var(--accent-glow);
+    }
+    .month-card.active .month-name { color: var(--accent-light); }
+    .month-name { font-size: 13px; font-weight: 600; color: var(--text-secondary); }
+    .month-amount { font-size: 13px; font-weight: 700; color: var(--emerald); margin-top: 4px; }
+    .month-days { font-size: 11px; color: var(--text-muted); }
+
+    /* ===================== PROGRESS BAR ===================== */
+    .progress-bar-wrap {
+      background: rgba(255,255,255,0.06);
+      border-radius: 100px;
+      height: 6px;
+      overflow: hidden;
+      margin-top: 8px;
+    }
+    .progress-bar-fill {
+      height: 100%;
+      background: linear-gradient(90deg, var(--accent), var(--accent-light));
+      border-radius: 100px;
+      transition: width 0.5s ease;
+    }
+
+    /* ===================== TOAST ===================== */
+    .toast-container {
+      position: fixed;
+      bottom: 24px; right: 24px;
+      display: flex; flex-direction: column; gap: 8px;
+      z-index: 9999;
+    }
+    .toast {
+      background: #1e1f35;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 14px 20px;
+      font-size: 14px; font-weight: 500;
+      display: flex; align-items: center; gap: 10px;
+      box-shadow: var(--shadow);
+      animation: slideIn 0.3s ease, fadeOut 0.3s 2.7s ease forwards;
+      min-width: 240px;
+    }
+    @keyframes slideIn {
+      from { transform: translateX(100px); opacity: 0; }
+      to { transform: translateX(0); opacity: 1; }
+    }
+    @keyframes fadeOut {
+      to { opacity: 0; transform: translateX(20px); }
+    }
+    .toast-success { border-color: var(--emerald); }
+    .toast-error { border-color: var(--rose); }
+
+    /* ===================== CHART SECTION ===================== */
+    .chart-container {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 28px;
+      margin-bottom: 24px;
+    }
+    .chart-bars {
+      display: flex;
+      align-items: flex-end;
+      gap: 8px;
+      height: 140px;
+      margin-top: 16px;
+    }
+    .chart-bar-wrap {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+      height: 100%;
+    }
+    .chart-bar {
+      width: 100%;
+      background: linear-gradient(180deg, var(--accent), var(--accent-dark));
+      border-radius: 6px 6px 0 0;
+      transition: all 0.5s ease;
+      position: relative;
+      cursor: pointer;
+    }
+    .chart-bar:hover { background: linear-gradient(180deg, var(--accent-light), var(--accent)); }
+    .chart-bar-label { font-size: 10px; color: var(--text-muted); font-weight: 600; text-align: center; }
+    .chart-bar-val { font-size: 9px; color: var(--text-muted); }
+    .chart-bar-tooltip {
+      position: absolute;
+      bottom: calc(100% + 8px);
+      left: 50%;
+      transform: translateX(-50%);
+      background: #1e1f35;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 6px 10px;
+      font-size: 12px;
+      white-space: nowrap;
+      display: none;
+      z-index: 10;
+    }
+    .chart-bar:hover .chart-bar-tooltip { display: block; }
+
+    /* ===================== JOB COLORS ===================== */
+    .job-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      display: inline-block;
+      margin-right: 6px;
+    }
+
+    /* ===================== JOURNEES CALENDAR ===================== */
+    .calendar-nav {
+      display: flex; align-items: center; gap: 10px;
+    }
+    .calendar-nav-btn {
+      width: 32px; height: 32px;
+      display: flex; align-items: center; justify-content: center;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 50%;
+      color: var(--text-secondary);
+      cursor: pointer;
+      font-size: 16px;
+      line-height: 1;
+      transition: all 0.2s;
+    }
+    .calendar-nav-btn:hover { background: var(--accent-glow); border-color: var(--accent); color: var(--accent-light); }
+    .calendar-month-label {
+      font-size: 15px; font-weight: 700;
+      min-width: 130px;
+      text-align: center;
+      text-transform: capitalize;
+    }
+    .calendar-wrap { padding: 16px 20px 20px; }
+    .calendar-weekdays {
+      display: grid;
+      grid-template-columns: repeat(7, 1fr);
+      gap: 6px;
+      margin-bottom: 8px;
+    }
+    .calendar-weekdays div {
+      text-align: center;
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-muted);
+      padding: 4px 0;
+    }
+    .calendar-grid {
+      display: grid;
+      grid-template-columns: repeat(7, 1fr);
+      gap: 6px;
+    }
+    .calendar-day {
+      min-height: 88px;
+      background: rgba(255,255,255,0.02);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 6px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      transition: all 0.15s;
+    }
+    .calendar-day.outside { opacity: 0.3; }
+    .calendar-day.has-events { cursor: pointer; }
+    .calendar-day.has-events:hover { background: var(--bg-card-hover); border-color: var(--border-glow); }
+    .calendar-day-num {
+      font-size: 12px; font-weight: 600; color: var(--text-secondary);
+      width: 22px; height: 22px;
+      display: flex; align-items: center; justify-content: center;
+      border-radius: 50%;
+    }
+    .calendar-day.today .calendar-day-num {
+      background: linear-gradient(135deg, var(--accent), var(--accent-dark));
+      color: #fff;
+    }
+    .calendar-day-events {
+      display: flex; flex-direction: column; gap: 3px;
+      overflow: hidden;
+    }
+    .calendar-event {
+      display: flex; align-items: center; gap: 4px;
+      font-size: 10.5px; font-weight: 600;
+      padding: 2px 6px;
+      border-radius: 6px;
+      background: var(--bg-card);
+      color: var(--text-secondary);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .calendar-event .job-dot { flex-shrink: 0; margin-right: 0; }
+    .calendar-day-more {
+      font-size: 10px; color: var(--text-muted); font-weight: 600; padding-left: 2px;
+    }
+    .calendar-day-total {
+      margin-top: auto;
+      font-size: 11px; font-weight: 700;
+      color: var(--emerald);
+    }
+    @media (max-width: 640px) {
+      .calendar-day { min-height: 60px; padding: 4px; }
+      .calendar-event .evt-label { display: none; }
+      .calendar-day-total { font-size: 9.5px; }
+    }
+
+    /* Year grid (12 months) — used by Primes */
+    .calendar-grid.year-grid {
+      grid-template-columns: repeat(4, 1fr);
+      gap: 10px;
+    }
+    .calendar-grid.year-grid .calendar-day { min-height: 110px; }
+    .month-cell-name {
+      font-size: 13px; font-weight: 700; color: var(--text-secondary);
+      padding: 3px 9px; border-radius: 8px; align-self: flex-start;
+    }
+    .calendar-day.today .month-cell-name {
+      background: linear-gradient(135deg, var(--accent), var(--accent-dark));
+      color: #fff;
+    }
+    @media (max-width: 800px) {
+      .calendar-grid.year-grid { grid-template-columns: repeat(2, 1fr); }
+    }
+
+    /* ===================== RECAP MENSUEL ===================== */
+    .recap-month-selector {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-bottom: 32px;
+    }
+
+    .recap-nav-btn {
+      width: 40px; height: 40px;
+      border-radius: 50%;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      color: var(--text-primary);
+      font-size: 18px;
+      cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      transition: all 0.2s;
+      flex-shrink: 0;
+    }
+    .recap-nav-btn:hover { background: var(--accent-glow); border-color: var(--accent); }
+
+    .recap-month-label {
+      font-size: 28px;
+      font-weight: 800;
+      color: var(--text-primary);
+      flex: 1;
+      text-align: center;
+      min-width: 180px;
+    }
+
+    .recap-section {
+      margin-bottom: 28px;
+    }
+
+    .recap-section-title {
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--text-secondary);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin-bottom: 14px;
+      display: flex; align-items: center; gap: 8px;
+      padding-bottom: 10px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .recap-job-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px 20px;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      margin-bottom: 8px;
+      transition: all 0.2s;
+    }
+    .recap-job-row:hover { background: var(--bg-card-hover); border-color: var(--border-glow); }
+
+    .recap-job-info { display: flex; align-items: center; gap: 12px; }
+    .recap-job-color { width: 12px; height: 12px; border-radius: 50%; flex-shrink:0; }
+    .recap-job-name { font-size: 15px; font-weight: 600; color: var(--text-primary); }
+    .recap-job-sub { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+    .recap-job-amount { font-size: 18px; font-weight: 800; color: var(--emerald); }
+
+    .recap-divider {
+      height: 1px;
+      background: var(--border);
+      margin: 24px 0;
+    }
+
+    .recap-total-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 20px 24px;
+      background: linear-gradient(135deg, rgba(139,92,246,0.1), rgba(14,165,233,0.05));
+      border: 1px solid var(--border-glow);
+      border-radius: var(--radius);
+      margin-bottom: 8px;
+    }
+    .recap-total-label { font-size: 16px; font-weight: 700; color: var(--text-primary); }
+    .recap-total-value { font-size: 26px; font-weight: 800; }
+
+    .recap-print-header {
+      display: none;
+    }
+
+    /* ===================== RESPONSIVE ===================== */
+    @media (max-width: 768px) {
+      .header { padding: 16px; }
+      .header-actions { width: 100%; justify-content: center; }
+      .nav-tabs { padding: 12px 16px; justify-content: flex-start; }
+      .main { padding: 16px; }
+      .stats-grid { grid-template-columns: repeat(2, 1fr); }
+      .months-grid { grid-template-columns: repeat(3, 1fr); }
+      .form-grid { grid-template-columns: 1fr; }
+      .brand-name { font-size: 18px; }
+      .recap-month-label { font-size: 20px; }
+    }
+
+    /* ===================== AUTH PAGE ===================== */
+    .auth-wrapper {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--bg-primary);
+      z-index: 9999;
+    }
+    .auth-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 40px;
+      width: 90%;
+      max-width: 440px;
+      box-shadow: var(--shadow), var(--shadow-glow);
+      backdrop-filter: blur(20px);
+      text-align: center;
+    }
+    .auth-logo {
+      font-size: 48px;
+      margin-bottom: 12px;
+    }
+    .auth-title {
+      font-size: 24px;
+      font-weight: 800;
+      margin-bottom: 6px;
+      background: linear-gradient(135deg, #fff 30%, var(--accent-light));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .auth-subtitle {
+      font-size: 14px;
+      color: var(--text-secondary);
+      margin-bottom: 28px;
+    }
+    .auth-mode-badge {
+      display: inline-block;
+      padding: 4px 12px;
+      border-radius: 20px;
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      margin-bottom: 20px;
+    }
+    .auth-mode-mock {
+      background: rgba(245, 158, 11, 0.1);
+      color: var(--amber);
+      border: 1px solid var(--amber-glow);
+    }
+    .auth-mode-firebase {
+      background: rgba(16, 185, 129, 0.1);
+      color: var(--emerald);
+      border: 1px solid var(--emerald-glow);
+    }
+    .auth-footer-text {
+      margin-top: 20px;
+      font-size: 14px;
+      color: var(--text-secondary);
+    }
+    .auth-toggle-link {
+      color: var(--accent-light);
+      cursor: pointer;
+      font-weight: 600;
+      text-decoration: underline;
+    }
+    .auth-toggle-link:hover {
+      color: var(--accent);
+    }
+  </style>
+</head>
+<body>
+
+<!-- AUTH PAGE -->
+<div class="auth-wrapper" id="authPage">
+  <div class="auth-card">
+    <div class="auth-logo">💰</div>
+    <div class="auth-title" id="authTitle">Se connecter</div>
+    <div class="auth-subtitle" id="authSubtitle">Gérez vos revenus d'auto-entrepreneur</div>
+    
+    <div id="authConfigBadge" class="auth-mode-badge auth-mode-mock">Mode Hors-ligne (LocalStorage)</div>
+    
+    <form id="authForm" onsubmit="handleAuth(event)">
+      <!-- Dynamic form fields -->
+      <div id="authFields"></div>
+      
+      <!-- Forgot password link -->
+      <div id="forgotPasswordLinkContainer" style="margin-bottom: 20px; text-align: right;">
+        <span class="auth-toggle-link" style="font-size: 13px;" onclick="setAuthMode('reset')">Mot de passe oublié ?</span>
+      </div>
+
+      <button class="btn btn-primary" type="submit" id="authSubmitBtn" style="width: 100%; justify-content: center; padding: 12px; font-weight: 700;">
+        Se connecter
+      </button>
+    </form>
+    
+    <div class="auth-footer-text" id="authFooter">
+      Pas encore de compte ? <span class="auth-toggle-link" onclick="setAuthMode('signup')">S'inscrire</span>
+    </div>
+  </div>
+</div>
+
+<div class="app-wrapper" id="appWrapper" style="display:none;">
+
+  <!-- HEADER -->
+  <header class="header">
+    <div class="header-brand">
+      <div class="logo">💰</div>
+      <div>
+        <div class="brand-name">FreelanceTracker</div>
+        <div class="header-year" id="headerYearLabel">Suivi de revenus</div>
+      </div>
+    </div>
+    <div class="header-actions">
+      <button class="tab-btn active" onclick="showPage('dashboard')" id="tab-dashboard">
+        <span class="tab-icon">📊</span> Dashboard
+      </button>
+      <button class="tab-btn" onclick="showPage('recap')" id="tab-recap">
+        <span class="tab-icon">📋</span> Récap Mensuel
+      </button>
+      <span id="userEmailDisplay" style="font-size: 13px; color: var(--text-secondary); margin-right: 8px;"></span>
+      <select class="year-selector" id="yearSelector" onchange="changeYear()">
+      </select>
+      <button class="btn btn-ghost btn-sm" onclick="logoutUser()" title="Se déconnecter" style="padding: 8px 12px; font-size: 14px;">
+        🚪 Déconnexion
+      </button>
+    </div>
+  </header>
+
+  <!-- NAV TABS -->
+  <nav class="nav-tabs" role="navigation" aria-label="Navigation principale">
+    <button class="tab-btn" onclick="showPage('journees')" id="tab-journees">
+      <span class="tab-icon">📅</span> Journées
+    </button>
+    <button class="tab-btn" onclick="showPage('primes')" id="tab-primes">
+      <span class="tab-icon">🏆</span> Primes
+    </button>
+    <button class="tab-btn" onclick="showPage('autoroute')" id="tab-autoroute">
+      <span class="tab-icon">🛣️</span> Autoroute
+    </button>
+    <button class="tab-btn" onclick="showPage('virements')" id="tab-virements">
+      <span class="tab-icon">💳</span> Virements
+    </button>
+    <button class="tab-btn" onclick="showPage('boulots')" id="tab-boulots">
+      <span class="tab-icon">⚙️</span> Boulots
+    </button>
+  </nav>
+
+  <main class="main">
+
+    <!-- ======================== DASHBOARD ======================== -->
+    <div class="page active" id="page-dashboard">
+      <div class="section-header">
+        <div class="section-title">📊 Dashboard</div>
+        <button class="btn btn-primary" onclick="exportPDF()">
+          📄 Export PDF annuel
+        </button>
+      </div>
+      <div class="stats-grid" id="statsGrid"></div>
+
+      <!-- Monthly Chart -->
+      <div class="chart-container">
+        <div class="section-header">
+          <div class="section-title">📈 Revenus mensuels</div>
+        </div>
+        <div class="chart-bars" id="monthlyChart"></div>
+      </div>
+
+      <!-- Month selector -->
+      <div class="section-header">
+        <div class="section-title">📅 Vue par mois</div>
+        <div class="filter-bar">
+          <button class="filter-chip active" id="monthFilterAll" onclick="setMonthFilter(null)">Toute l'année</button>
+        </div>
+      </div>
+      <div class="months-grid" id="monthsGrid"></div>
+
+      <!-- Selected month details -->
+      <div id="monthDetails"></div>
+    </div>
+
+    <!-- ======================== JOURNÉES ======================== -->
+    <div class="page" id="page-journees">
+      <div class="form-card">
+        <div class="form-title">➕ Ajouter une journée</div>
+        <div class="form-grid">
+          <div class="form-group">
+            <label class="form-label" for="j-date">Date</label>
+            <input type="date" class="form-input" id="j-date" />
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="j-boulot">Boulot / Tâche</label>
+            <select class="form-select" id="j-boulot" onchange="autofillTarif()">
+              <option value="">— Choisir —</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="j-type">Type</label>
+            <select class="form-select" id="j-type" onchange="toggleTypeFields(); autofillTarif();">
+              <option value="journee">Par journée</option>
+              <option value="heure">Par heure</option>
+            </select>
+          </div>
+          <div class="form-group" id="j-tarif-group">
+            <label class="form-label" for="j-tarif">Tarif journée (€)</label>
+            <input type="number" class="form-input" id="j-tarif" placeholder="ex: 350" min="0" step="0.01" />
+          </div>
+          <div class="form-group hidden" id="j-debut-group">
+            <label class="form-label" for="j-debut">Heure de début</label>
+            <input type="time" class="form-input" id="j-debut" oninput="calcHeuresAuto()" />
+          </div>
+          <div class="form-group hidden" id="j-fin-group">
+            <label class="form-label" for="j-fin">Heure de fin</label>
+            <input type="time" class="form-input" id="j-fin" oninput="calcHeuresAuto()" />
+          </div>
+          <div class="form-group hidden" id="j-pause-group">
+            <label class="form-label" for="j-pause">Pause (min)</label>
+            <input type="number" class="form-input" id="j-pause" placeholder="ex: 30" min="0" step="1" oninput="calcHeuresAuto()" />
+          </div>
+          <div class="form-group hidden" id="j-heures-group">
+            <label class="form-label" for="j-heures">Nb heures</label>
+            <input type="number" class="form-input" id="j-heures" placeholder="ex: 7" min="0" step="0.5" />
+          </div>
+          <div class="form-group hidden" id="j-taux-group">
+            <label class="form-label" for="j-taux">Taux horaire (€)</label>
+            <input type="number" class="form-input" id="j-taux" placeholder="ex: 45" min="0" step="0.01" />
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="j-note">Note (optionnel)</label>
+            <input type="text" class="form-input" id="j-note" placeholder="ex: développement front" />
+          </div>
+        </div>
+        <div style="margin-top:16px; display:flex; gap:10px; flex-wrap:wrap;">
+          <button class="btn btn-primary" onclick="addJournee()" id="addJourneeBtn">
+            ➕ Ajouter
+          </button>
+          <button class="btn btn-ghost" onclick="clearJourneeForm()">🗑️ Vider</button>
+        </div>
+      </div>
+
+      <!-- Calendar -->
+      <div class="table-wrapper">
+        <div class="table-header">
+          <div class="filter-bar" id="journeeFilters">
+            <span style="font-size:13px; color:var(--text-muted)">Filtrer :</span>
+            <button class="filter-chip active" onclick="filterJournees(null, this)" data-filter="all">Tous</button>
+          </div>
+          <div class="calendar-nav">
+            <button class="calendar-nav-btn" onclick="changeCalendarMonth(-1)" aria-label="Mois précédent">‹</button>
+            <span class="calendar-month-label" id="calendarMonthLabel"></span>
+            <button class="calendar-nav-btn" onclick="changeCalendarMonth(1)" aria-label="Mois suivant">›</button>
+            <button class="btn btn-ghost btn-sm" onclick="goToCurrentMonth()">Aujourd'hui</button>
+          </div>
+        </div>
+        <div class="calendar-wrap">
+          <div class="calendar-weekdays">
+            <div>Lun</div><div>Mar</div><div>Mer</div><div>Jeu</div><div>Ven</div><div>Sam</div><div>Dim</div>
+          </div>
+          <div class="calendar-grid" id="journeesCalendar"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ======================== PRIMES ======================== -->
+    <div class="page" id="page-primes">
+      <div class="form-card">
+        <div class="form-title">🏆 Ajouter une prime</div>
+        <div class="form-grid">
+          <div class="form-group">
+            <label class="form-label" for="p-mois">Mois</label>
+            <input type="month" class="form-input" id="p-mois" />
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="p-label">Libellé</label>
+            <input type="text" class="form-input" id="p-label" placeholder="ex: Prime qualité Q1" />
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="p-boulot">Boulot lié (optionnel)</label>
+            <select class="form-select" id="p-boulot">
+              <option value="">— Aucun —</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="p-montant">Montant (€)</label>
+            <input type="number" class="form-input" id="p-montant" placeholder="ex: 500" min="0" step="0.01" />
+          </div>
+        </div>
+        <div style="margin-top:16px;">
+          <button class="btn btn-primary" onclick="addPrime()">➕ Ajouter la prime</button>
+        </div>
+      </div>
+
+      <div class="table-wrapper">
+        <div class="table-header">
+          <div class="section-title" style="font-size:16px;">🏆 Primes — <span id="primesYearLabel"></span></div>
+        </div>
+        <div class="calendar-wrap">
+          <div class="calendar-grid year-grid" id="primesCalendar"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ======================== AUTOROUTE ======================== -->
+    <div class="page" id="page-autoroute">
+      <div class="form-card">
+        <div class="form-title">🛣️ Ajouter un péage</div>
+        <div class="form-grid">
+          <div class="form-group">
+            <label class="form-label" for="a-date">Date</label>
+            <input type="date" class="form-input" id="a-date" />
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="a-trajet">Trajet <span style="color:var(--text-muted); text-transform:none; font-weight:400;">(optionnel)</span></label>
+            <input type="text" class="form-input" id="a-trajet" placeholder="ex: Paris → Lyon" />
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="a-boulot">Boulot lié</label>
+            <select class="form-select" id="a-boulot">
+              <option value="">— Aucun —</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="a-montant">Montant (€)</label>
+            <input type="number" class="form-input" id="a-montant" placeholder="ex: 12.50" min="0" step="0.01" />
+          </div>
+        </div>
+        <div style="margin-top:16px;">
+          <button class="btn btn-primary" onclick="addAutoroute()">➕ Ajouter le péage</button>
+        </div>
+      </div>
+
+      <div class="table-wrapper">
+        <div class="table-header">
+          <div class="section-title" style="font-size:16px;">🛣️ Péages enregistrés</div>
+          <div style="display:flex; gap:8px; align-items:center;">
+            <span id="autorouteTotalBadge" class="badge badge-pending" style="font-size:13px; padding:6px 14px;"></span>
+            <button class="btn btn-primary btn-sm" onclick="exportAutoRoutePDF()">📄 Export PDF</button>
+          </div>
+        </div>
+        <div class="calendar-wrap">
+          <div class="calendar-nav" style="justify-content:center; margin-bottom:14px;">
+            <button class="calendar-nav-btn" onclick="changeAutorouteMonth(-1)" aria-label="Mois précédent">‹</button>
+            <span class="calendar-month-label" id="autorouteMonthLabel"></span>
+            <button class="calendar-nav-btn" onclick="changeAutorouteMonth(1)" aria-label="Mois suivant">›</button>
+            <button class="btn btn-ghost btn-sm" onclick="goToAutorouteCurrentMonth()">Aujourd'hui</button>
+          </div>
+          <div class="calendar-weekdays">
+            <div>Lun</div><div>Mar</div><div>Mer</div><div>Jeu</div><div>Ven</div><div>Sam</div><div>Dim</div>
+          </div>
+          <div class="calendar-grid" id="autorouteCalendar"></div>
+        </div>
+      </div>
+
+      <!-- RECAP AUTOROUTE -->
+      <div id="autorouteRecap" style="margin-top:28px;"></div>
+
+    </div>
+
+    <!-- ======================== VIREMENTS ======================== -->
+    <div class="page" id="page-virements">
+      <div class="form-card">
+        <div class="form-title">💳 Enregistrer un virement reçu</div>
+        <div class="form-grid">
+          <div class="form-group">
+            <label class="form-label" for="v-date">Date du virement</label>
+            <input type="date" class="form-input" id="v-date" />
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="v-client">Client / Donneur d'ordre</label>
+            <input type="text" class="form-input" id="v-client" placeholder="ex: Entreprise XYZ" />
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="v-boulot">Boulot concerné</label>
+            <select class="form-select" id="v-boulot">
+              <option value="">— Aucun —</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="v-type">Type de virement</label>
+            <select class="form-select" id="v-type">
+              <option value="prestation">Rémunération / Prestation</option>
+              <option value="peage">Avancement de péage</option>
+              <option value="prime">Prime</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="v-mois">Mois facturé</label>
+            <input type="month" class="form-input" id="v-mois" />
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="v-montant">Montant reçu (€)</label>
+            <input type="number" class="form-input" id="v-montant" placeholder="ex: 3500" min="0" step="0.01" />
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="v-ref">Référence virement</label>
+            <input type="text" class="form-input" id="v-ref" placeholder="ex: VIR-2024-001" />
+          </div>
+        </div>
+        <div style="margin-top:16px;">
+          <button class="btn btn-success" onclick="addVirement()">💳 Enregistrer le virement</button>
+        </div>
+      </div>
+
+      <!-- Summary virements vs earnings -->
+      <div id="virementsStats" style="margin-bottom:24px;"></div>
+
+      <div class="table-wrapper">
+        <div class="table-header">
+          <div class="section-title" style="font-size:16px;">💳 Virements reçus</div>
+          <span id="virementsTotalBadge" class="badge badge-paid" style="font-size:13px; padding:6px 14px;"></span>
+        </div>
+        <div class="calendar-wrap">
+          <div class="calendar-nav" style="justify-content:center; margin-bottom:14px;">
+            <button class="calendar-nav-btn" onclick="changeVirementsMonth(-1)" aria-label="Mois précédent">‹</button>
+            <span class="calendar-month-label" id="virementsMonthLabel"></span>
+            <button class="calendar-nav-btn" onclick="changeVirementsMonth(1)" aria-label="Mois suivant">›</button>
+            <button class="btn btn-ghost btn-sm" onclick="goToVirementsCurrentMonth()">Aujourd'hui</button>
+          </div>
+          <div class="calendar-weekdays">
+            <div>Lun</div><div>Mar</div><div>Mer</div><div>Jeu</div><div>Ven</div><div>Sam</div><div>Dim</div>
+          </div>
+          <div class="calendar-grid" id="virementsCalendar"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ======================== BOULOTS ======================== -->
+    <div class="page" id="page-boulots">
+      <div class="form-card">
+        <div class="form-title">⚙️ Ajouter un boulot / tâche</div>
+        <div class="form-grid">
+          <div class="form-group">
+            <label class="form-label" for="b-nom">Nom du boulot</label>
+            <input type="text" class="form-input" id="b-nom" placeholder="ex: Développement web" />
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="b-client">Client</label>
+            <input type="text" class="form-input" id="b-client" placeholder="ex: Société XYZ" />
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="b-couleur">Couleur</label>
+            <input type="color" class="form-input" id="b-couleur" value="#8b5cf6" style="height:44px; padding:4px 8px; cursor:pointer;" />
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="b-tarif-defaut">Tarif journée par défaut (€)</label>
+            <input type="number" class="form-input" id="b-tarif-defaut" placeholder="ex: 350" min="0" step="0.01" />
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="b-taux-defaut">Taux horaire par défaut (€)</label>
+            <input type="number" class="form-input" id="b-taux-defaut" placeholder="ex: 45" min="0" step="0.01" />
+          </div>
+        </div>
+        <div style="margin-top:16px;">
+          <button class="btn btn-primary" onclick="addBoulot()">➕ Créer le boulot</button>
+        </div>
+      </div>
+
+      <div id="boulotsList"></div>
+    </div>
+
+    <!-- ======================== RÉCAP MENSUEL ======================== -->
+    <div class="page" id="page-recap">
+
+      <!-- Month Navigator -->
+      <div class="recap-month-selector">
+        <button class="recap-nav-btn" onclick="recapPrevMonth()" title="Mois précédent">‹</button>
+        <div class="recap-month-label" id="recapMonthLabel"></div>
+        <button class="recap-nav-btn" onclick="recapNextMonth()" title="Mois suivant">›</button>
+        <div style="display:flex; gap:8px; margin-left:auto;">
+          <input type="month" class="form-input" id="recapMonthPicker"
+            onchange="setRecapMonth(this.value)"
+            style="width:auto; padding:8px 14px; font-size:14px;" />
+          <button class="btn btn-primary" onclick="exportMonthPDF()">
+            📄 Export PDF du mois
+          </button>
+        </div>
+      </div>
+
+      <!-- Filters -->
+      <div class="table-header" style="margin-top:16px;">
+        <div class="filter-bar" id="recapTypeFilters">
+          <span style="font-size:13px; color:var(--text-muted)">Filtrer :</span>
+          <button class="filter-chip active" id="rfType-all" onclick="setRecapFilter(null, this)">Tous</button>
+          <button class="filter-chip" id="rfType-journee" onclick="setRecapFilter('journee', this)">Journées</button>
+          <button class="filter-chip" id="rfType-heure" onclick="setRecapFilter('heure', this)">Heures</button>
+        </div>
+        <div style="display:flex; gap:8px; align-items:center;">
+          <select class="form-select" id="recapBoulotFilter" onchange="renderRecap()" style="width:auto; padding:8px 14px; font-size:14px;">
+            <option value="">— Tous les boulots —</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Dynamic content -->
+      <div id="recapContent"></div>
+    </div>
+
+  </main>
+</div>
+
+<!-- TOAST -->
+<div class="toast-container" id="toastContainer"></div>
+
+<!-- CONFIRM MODAL -->
+<div class="modal-overlay" id="confirmModal">
+  <div class="modal">
+    <div class="modal-title">⚠️ Confirmation</div>
+    <p id="confirmText" style="color:var(--text-secondary); line-height:1.6;"></p>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal('confirmModal')">Annuler</button>
+      <button class="btn btn-danger" id="confirmBtn">Supprimer</button>
+    </div>
+  </div>
+</div>
+
+<!-- DAY DETAIL MODAL -->
+<div class="modal-overlay" id="dayModal">
+  <div class="modal" style="max-width:460px;">
+    <div class="modal-title" id="dayModalTitle">📅 Journée</div>
+    <div id="dayModalBody" style="display:flex; flex-direction:column; gap:10px; max-height:50vh; overflow-y:auto;"></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal('dayModal')">Fermer</button>
+      <button class="btn btn-primary" id="dayModalAddBtn">➕ Ajouter ce jour</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ======================== FIREBASE CONFIGURATION ========================
+// Remplissez vos clés Firebase ci-dessous pour activer la synchronisation Cloud.
+// Si laissé vide ou par défaut, l'application fonctionne en mode hors-ligne (LocalStorage).
+const firebaseConfig = {
+  apiKey: "AIzaSyBpsdWz5FWQQeC56jbMhqKWUNuqhZNiIpo",
+  authDomain: "freelancetracker-fd9c0.firebaseapp.com",
+  projectId: "freelancetracker-fd9c0",
+  storageBucket: "freelancetracker-fd9c0.firebasestorage.app",
+  messagingSenderId: "818875437255",
+  appId: "1:818875437255:web:c7c015682977dc1d256ee2"
+};
+
+let db = null;
+let auth = null;
+let isFirebaseEnabled = false;
+
+function initFirebase() {
+  if (firebaseConfig.apiKey && firebaseConfig.apiKey !== "YOUR_API_KEY") {
+    try {
+      firebase.initializeApp(firebaseConfig);
+      db = firebase.firestore();
+      auth = firebase.auth();
+      isFirebaseEnabled = true;
+      console.log("Firebase connecté avec succès !");
+      document.getElementById('authConfigBadge').className = "auth-mode-badge auth-mode-firebase";
+      document.getElementById('authConfigBadge').textContent = "Mode Cloud (Firebase)";
+    } catch (e) {
+      console.error("Erreur lors de l'initialisation de Firebase :", e);
+    }
+  }
+}
+
+// ======================== DATA STORE ========================
+
+const CURRENT_YEAR = new Date().getFullYear();
+let selectedYear = CURRENT_YEAR;
+let calendarMonth = `${CURRENT_YEAR}-${String(new Date().getMonth()+1).padStart(2,'0')}`;
+let autorouteCalendarMonth = `${CURRENT_YEAR}-${String(new Date().getMonth()+1).padStart(2,'0')}`;
+let virementsCalendarMonth = `${CURRENT_YEAR}-${String(new Date().getMonth()+1).padStart(2,'0')}`;
+
+const MONTHS_FR = ['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
+const MONTHS_SHORT = ['Jan','Fév','Mar','Avr','Mai','Jun','Jul','Aoû','Sep','Oct','Nov','Déc'];
+
+// Load from localStorage
+function loadData(key, fallback = []) {
+  try { return JSON.parse(localStorage.getItem(key) || 'null') ?? fallback; }
+  catch { return fallback; }
+}
+
+let journees = [];
+let primes = [];
+let autoroutes = [];
+let virements = [];
+let boulots = [];
+
+let currentUser = null;
+
+function loadUserData() {
+  if (isFirebaseEnabled && auth.currentUser) {
+    const userId = auth.currentUser.uid;
+    db.collection("users").doc(userId).get().then(doc => {
+      if (doc.exists) {
+        const d = doc.data();
+        journees = d.journees || [];
+        primes = d.primes || [];
+        autoroutes = d.autoroutes || [];
+        virements = d.virements || [];
+        boulots = d.boulots || [];
+      } else {
+        // Clear/reset
+        journees = [];
+        primes = [];
+        autoroutes = [];
+        virements = [];
+        boulots = [];
+      }
+      onUserDataLoaded();
+    }).catch(err => {
+      console.error("Erreur chargement Firestore:", err);
+      toast("Erreur de chargement Cloud", "error");
+    });
+  } else {
+    // Local mock mode
+    const email = localStorage.getItem('ft_currentUser');
+    if (email) {
+      currentUser = { email };
+      const allUsers = JSON.parse(localStorage.getItem('ft_users') || '{}');
+      const userData = allUsers[email] || {};
+      journees = userData.journees || [];
+      primes = userData.primes || [];
+      autoroutes = userData.autoroutes || [];
+      virements = userData.virements || [];
+      boulots = userData.boulots || [];
+      onUserDataLoaded();
+    }
+  }
+}
+
+function onUserDataLoaded() {
+  if (boulots.length === 0) {
+    boulots.push({ id: genId(), nom: 'Mission principale', client: '', couleur: '#8b5cf6', tarifDefaut: '350' });
+    saveUserData();
+  }
+  refreshBoulotSelects();
+  initYearSelector();
+  toggleTypeFields();
+  refreshAll();
+}
+
+function saveUserData() {
+  if (isFirebaseEnabled && auth && auth.currentUser) {
+    const userId = auth.currentUser.uid;
+    db.collection("users").doc(userId).set({
+      journees,
+      primes,
+      autoroutes,
+      virements,
+      boulots
+    }).catch(err => {
+      console.error("Erreur de sauvegarde Firestore:", err);
+    });
+  } else if (currentUser) {
+    const email = currentUser.email;
+    const allUsers = JSON.parse(localStorage.getItem('ft_users') || '{}');
+    allUsers[email] = {
+      password: allUsers[email]?.password || '',
+      journees,
+      primes,
+      autoroutes,
+      virements,
+      boulots
+    };
+    localStorage.setItem('ft_users', JSON.stringify(allUsers));
+  }
+}
+
+function saveData(key, val) {
+  // Override to trigger cloud or local-user save
+  saveUserData();
+}
+
+// Active filter state
+let activeJourneeFilter = null;
+let activeMonthFilter = null;
+
+// ======================== HELPERS ========================
+
+function genId() { return Date.now().toString(36) + Math.random().toString(36).slice(2); }
+
+function fmt(n) {
+  return new Intl.NumberFormat('fr-FR', { style:'currency', currency:'EUR', minimumFractionDigits:2 }).format(n || 0);
+}
+
+// Intl.NumberFormat('fr-FR') uses a narrow no-break space as thousands separator,
+// a glyph the standard PDF fonts don't have — jsPDF renders it as garbage ("/").
+// Use a plain space instead for anything drawn into a PDF.
+function fmtPdf(n) {
+  n = parseFloat(n) || 0;
+  const neg = n < 0;
+  const [intPart, decPart] = Math.abs(n).toFixed(2).split('.');
+  const grouped = intPart.replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+  return `${neg ? '-' : ''}${grouped},${decPart} €`;
+}
+
+function fmtDate(d) {
+  if (!d) return '';
+  const [y,m,day] = d.split('-');
+  return `${day}/${m}/${y}`;
+}
+
+function getBoulot(id) { return boulots.find(b => b.id === id); }
+
+function getJobColor(boulotId) {
+  const b = getBoulot(boulotId);
+  return b ? b.couleur : '#8b5cf6';
+}
+
+function getJobName(boulotId) {
+  const b = getBoulot(boulotId);
+  return b ? b.nom : '—';
+}
+
+function calcJourneeAmount(j) {
+  if (j.type === 'journee') return parseFloat(j.tarif) || 0;
+  if (j.type === 'heure') return (parseFloat(j.heures) || 0) * (parseFloat(j.taux) || 0);
+  return 0;
+}
+
+function formatJourneeDetail(j) {
+  if (j.type === 'journee') return fmt(j.tarif) + '/j';
+  const base = (j.heures || 0) + 'h × ' + fmt(j.taux);
+  if (j.debut && j.fin) {
+    let horaire = j.debut + '–' + j.fin;
+    if (j.pause) horaire += ' (pause ' + j.pause + 'min)';
+    return horaire + ' · ' + base;
+  }
+  return base;
+}
+
+function getYearData(year) {
+  const y = String(year);
+  return {
+    journees: journees.filter(j => j.date && j.date.startsWith(y)),
+    primes: primes.filter(p => p.mois && p.mois.startsWith(y)),
+    autoroutes: autoroutes.filter(a => a.date && a.date.startsWith(y)),
+    virements: virements.filter(v => v.date && v.date.startsWith(y))
+  };
+}
+
+// ======================== YEAR MANAGEMENT ========================
+
+function initYearSelector() {
+  const sel = document.getElementById('yearSelector');
+  sel.innerHTML = '';
+  const years = new Set([CURRENT_YEAR, CURRENT_YEAR-1, CURRENT_YEAR+1]);
+  [...journees, ...primes, ...autoroutes, ...virements].forEach(item => {
+    const d = item.date || item.mois || '';
+    if (d) years.add(parseInt(d.slice(0,4)));
+  });
+  [...years].sort((a,b) => b-a).forEach(y => {
+    const opt = document.createElement('option');
+    opt.value = y; opt.text = y;
+    if (y === selectedYear) opt.selected = true;
+    sel.appendChild(opt);
+  });
+  document.getElementById('headerYearLabel').textContent = `Année ${selectedYear}`;
+}
+
+function changeYear() {
+  selectedYear = parseInt(document.getElementById('yearSelector').value);
+  document.getElementById('headerYearLabel').textContent = `Année ${selectedYear}`;
+  const mo = calendarMonth.split('-')[1];
+  calendarMonth = `${selectedYear}-${mo}`;
+  refreshAll();
+}
+
+// ======================== TABS ========================
+
+function showPage(name) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('page-' + name).classList.add('active');
+  document.getElementById('tab-' + name).classList.add('active');
+
+  if (name === 'dashboard') renderDashboard();
+  if (name === 'recap') renderRecap();
+  if (name === 'journees') renderJourneesTable();
+  if (name === 'primes') renderPrimesTable();
+  if (name === 'autoroute') renderAutorouteTable();
+  if (name === 'virements') renderVirementsTable();
+  if (name === 'boulots') renderBoulots();
+}
+
+// ======================== DASHBOARD ========================
+
+function renderDashboard() {
+  const yd = getYearData(selectedYear);
+
+  // Stats
+  const totalJournees = yd.journees.reduce((s,j) => s + calcJourneeAmount(j), 0);
+  const totalPrimes = yd.primes.reduce((s,p) => s + (parseFloat(p.montant)||0), 0);
+  const totalAutoroutes = yd.autoroutes.reduce((s,a) => s + (parseFloat(a.montant)||0), 0);
+  const totalVirements = yd.virements.reduce((s,v) => s + (parseFloat(v.montant)||0), 0);
+  const totalBrut = totalJournees + totalPrimes;
+  const totalNet = totalBrut - totalAutoroutes;
+
+  const joursTotal = yd.journees.filter(j => j.type === 'journee').length;
+  const heuresTotal = yd.journees.filter(j => j.type === 'heure').reduce((s,j) => s + (parseFloat(j.heures)||0), 0);
+
+  const solde = calcSoldeClient(yd.journees, yd.autoroutes, yd.virements);
+
+  const statsData = [
+    { icon:'💰', label:'Revenus bruts', value: fmt(totalBrut), sub:`Journées + Primes`, color:'var(--accent)', accentColor:'var(--accent)' },
+    { icon:'✅', label:'Net (après péages)', value: fmt(totalNet), sub:`Péages: ${fmt(totalAutoroutes)}`, color:'var(--emerald)', accentColor:'var(--emerald)' },
+    { icon:'📅', label:'Jours travaillés', value: joursTotal + ' j', sub:`+ ${heuresTotal}h sup`, color:'var(--sky)', accentColor:'var(--sky)' },
+    { icon:'🏆', label:'Primes', value: fmt(totalPrimes), sub:`${yd.primes.length} prime(s)`, color:'var(--amber)', accentColor:'var(--amber)' },
+    { icon:'💳', label:'Virements reçus', value: fmt(totalVirements), sub:`${solde.reste <= 0 ? '▲ Excédent ' : '▼ Reste à recevoir '} ${fmt(Math.abs(solde.reste))}`, color: solde.reste <= 0 ? 'var(--emerald)' : 'var(--rose)', accentColor: solde.reste <= 0 ? 'var(--emerald)' : 'var(--rose)' },
+    { icon:'🛣️', label:'Frais autoroute', value: fmt(totalAutoroutes), sub:`${yd.autoroutes.length} trajet(s)`, color:'var(--rose)', accentColor:'var(--rose)' },
+  ];
+
+  const grid = document.getElementById('statsGrid');
+  grid.innerHTML = statsData.map(s => `
+    <div class="stat-card" style="--accent-color:${s.accentColor}">
+      <span class="stat-icon">${s.icon}</span>
+      <div class="stat-label">${s.label}</div>
+      <div class="stat-value" style="color:${s.color}">${s.value}</div>
+      <div class="stat-sub">${s.sub}</div>
+    </div>
+  `).join('');
+
+  renderMonthlyChart(yd);
+  renderMonthsGrid(yd);
+}
+
+function renderMonthlyChart(yd) {
+  const monthlyTotals = Array(12).fill(0);
+  yd.journees.forEach(j => {
+    const m = parseInt(j.date.slice(5,7)) - 1;
+    monthlyTotals[m] += calcJourneeAmount(j);
+  });
+  yd.primes.forEach(p => {
+    const m = parseInt(p.mois.slice(5,7)) - 1;
+    monthlyTotals[m] += parseFloat(p.montant) || 0;
+  });
+
+  const max = Math.max(...monthlyTotals, 1);
+  const chart = document.getElementById('monthlyChart');
+  chart.innerHTML = monthlyTotals.map((v,i) => {
+    const pct = Math.round((v / max) * 100);
+    return `
+      <div class="chart-bar-wrap">
+        <div style="flex:1; display:flex; align-items:flex-end; width:100%;">
+          <div class="chart-bar" style="height:${Math.max(pct,2)}%;">
+            <div class="chart-bar-tooltip">${MONTHS_FR[i]}<br><strong>${fmt(v)}</strong></div>
+          </div>
+        </div>
+        <div class="chart-bar-label">${MONTHS_SHORT[i]}</div>
+      </div>
+    `;
+  }).join('');
+}
+
+function renderMonthsGrid(yd) {
+  const monthStats = Array(12).fill(null).map((_,i) => {
+    const mo = String(i+1).padStart(2,'0');
+    const moKey = `${selectedYear}-${mo}`;
+    const jours = yd.journees.filter(j => j.date && j.date.startsWith(moKey));
+    const primesM = yd.primes.filter(p => p.mois === moKey);
+    const total = jours.reduce((s,j) => s + calcJourneeAmount(j), 0)
+                + primesM.reduce((s,p) => s + (parseFloat(p.montant)||0), 0);
+    const nbJours = jours.filter(j => j.type==='journee').length;
+    const nbHeures = jours.filter(j => j.type==='heure').reduce((s,j) => s+(parseFloat(j.heures)||0), 0);
+    return { index:i, total, nbJours, nbHeures, jours, primesM };
+  });
+
+  const grid = document.getElementById('monthsGrid');
+  grid.innerHTML = monthStats.map(m => `
+    <div class="month-card ${activeMonthFilter === m.index ? 'active' : ''}"
+         onclick="setMonthFilter(${m.index})" role="button" tabindex="0">
+      <div class="month-name">${MONTHS_FR[m.index]}</div>
+      <div class="month-amount">${fmt(m.total)}</div>
+      <div class="month-days">${m.nbJours}j ${m.nbHeures > 0 ? '+ '+m.nbHeures+'h' : ''}</div>
+    </div>
+  `).join('');
+
+  if (activeMonthFilter !== null) {
+    renderMonthDetails(monthStats[activeMonthFilter], yd);
+  } else {
+    document.getElementById('monthDetails').innerHTML = '';
+  }
+}
+
+function setMonthFilter(idx) {
+  activeMonthFilter = idx;
+  document.getElementById('monthFilterAll').classList.toggle('active', idx === null);
+  renderDashboard();
+}
+
+function renderMonthDetails(m, yd) {
+  const mo = String(m.index+1).padStart(2,'0');
+  const moKey = `${selectedYear}-${mo}`;
+  const autoM = yd.autoroutes.filter(a => a.date && a.date.startsWith(moKey));
+  const virM = yd.virements.filter(v => v.date && v.date.startsWith(moKey));
+
+  let html = `
+    <div class="chart-container">
+      <div class="section-title">📅 ${MONTHS_FR[m.index]} ${selectedYear} — Détail</div>
+      <div class="stats-grid" style="margin-top:16px; margin-bottom:0;">
+        <div class="stat-card" style="--accent-color:var(--accent)">
+          <span class="stat-icon">💼</span>
+          <div class="stat-label">Journées</div>
+          <div class="stat-value">${fmt(m.jours.reduce((s,j)=>s+calcJourneeAmount(j),0))}</div>
+          <div class="stat-sub">${m.nbJours}j travaillés</div>
+        </div>
+        <div class="stat-card" style="--accent-color:var(--amber)">
+          <span class="stat-icon">🏆</span>
+          <div class="stat-label">Primes</div>
+          <div class="stat-value">${fmt(m.primesM.reduce((s,p)=>s+(parseFloat(p.montant)||0),0))}</div>
+        </div>
+        <div class="stat-card" style="--accent-color:var(--rose)">
+          <span class="stat-icon">🛣️</span>
+          <div class="stat-label">Péages</div>
+          <div class="stat-value">${fmt(autoM.reduce((s,a)=>s+(parseFloat(a.montant)||0),0))}</div>
+        </div>
+        <div class="stat-card" style="--accent-color:var(--emerald)">
+          <span class="stat-icon">💳</span>
+          <div class="stat-label">Virements reçus</div>
+          <div class="stat-value">${fmt(virM.reduce((s,v)=>s+(parseFloat(v.montant)||0),0))}</div>
+        </div>
+      </div>
+    </div>
+  `;
+
+  if (m.jours.length > 0) {
+    html += `
+      <div class="table-wrapper" style="margin-top:16px;">
+        <div class="table-header"><div class="section-title" style="font-size:15px;">📋 Journées du mois</div></div>
+        <div class="calendar-wrap">
+          <div class="calendar-weekdays">
+            <div>Lun</div><div>Mar</div><div>Mer</div><div>Jeu</div><div>Ven</div><div>Sam</div><div>Dim</div>
+          </div>
+          <div class="calendar-grid">${dayCalendarHTML(selectedYear, m.index+1, groupByDate(m.jours), {
+            colorOf: j => getJobColor(j.boulotId),
+            labelOf: j => getJobName(j.boulotId),
+            amountOf: j => calcJourneeAmount(j),
+            onClick: 'openDayModal'
+          })}</div>
+        </div>
+      </div>
+    `;
+  }
+
+  document.getElementById('monthDetails').innerHTML = html;
+}
+
+// ======================== JOURNÉES ========================
+
+function toggleTypeFields() {
+  const type = document.getElementById('j-type').value;
+  document.getElementById('j-tarif-group').style.display = type === 'journee' ? 'flex' : 'none';
+  document.getElementById('j-debut-group').style.display = type === 'heure' ? 'flex' : 'none';
+  document.getElementById('j-fin-group').style.display = type === 'heure' ? 'flex' : 'none';
+  document.getElementById('j-pause-group').style.display = type === 'heure' ? 'flex' : 'none';
+  document.getElementById('j-heures-group').style.display = type === 'heure' ? 'flex' : 'none';
+  document.getElementById('j-taux-group').style.display = type === 'heure' ? 'flex' : 'none';
+}
+
+function autofillTarif() {
+  const boulotId = document.getElementById('j-boulot').value;
+  const b = getBoulot(boulotId);
+  if (!b) return;
+  const type = document.getElementById('j-type').value;
+  if (type === 'journee' && b.tarifDefaut) {
+    document.getElementById('j-tarif').value = b.tarifDefaut;
+  }
+  if (type === 'heure' && b.tauxDefaut) {
+    document.getElementById('j-taux').value = b.tauxDefaut;
+  }
+}
+
+function calcHeuresAuto() {
+  const debut = document.getElementById('j-debut').value;
+  const fin = document.getElementById('j-fin').value;
+  const pause = parseFloat(document.getElementById('j-pause').value) || 0;
+  if (!debut || !fin) return;
+
+  const [h1, m1] = debut.split(':').map(Number);
+  const [h2, m2] = fin.split(':').map(Number);
+  let minutes = (h2 * 60 + m2) - (h1 * 60 + m1);
+  if (minutes < 0) minutes += 24 * 60;
+  minutes -= pause;
+  if (minutes < 0) minutes = 0;
+
+  document.getElementById('j-heures').value = Math.round((minutes / 60) * 100) / 100;
+}
+
+function addJournee() {
+  const date = document.getElementById('j-date').value;
+  const boulotId = document.getElementById('j-boulot').value;
+  const type = document.getElementById('j-type').value;
+  const tarif = document.getElementById('j-tarif').value;
+  const debut = document.getElementById('j-debut').value;
+  const fin = document.getElementById('j-fin').value;
+  const pause = document.getElementById('j-pause').value;
+  const heures = document.getElementById('j-heures').value;
+  const taux = document.getElementById('j-taux').value;
+  const note = document.getElementById('j-note').value;
+
+  if (!date) { toast('Veuillez choisir une date', 'error'); return; }
+  if (!boulotId) { toast('Veuillez choisir un boulot', 'error'); return; }
+  if (type === 'journee' && !tarif) { toast('Veuillez saisir le tarif', 'error'); return; }
+  if (type === 'heure' && (!heures || !taux)) { toast('Veuillez saisir les heures et le taux', 'error'); return; }
+
+  journees.push({ id:genId(), date, boulotId, type, tarif, heures, taux, note, debut, fin, pause });
+  saveData('ft_journees', journees);
+  toast('Journée ajoutée ✅');
+  clearJourneeForm();
+  renderJourneesTable();
+  initYearSelector();
+}
+
+function clearJourneeForm() {
+  ['j-date','j-tarif','j-heures','j-taux','j-note','j-debut','j-fin','j-pause'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('j-boulot').value = '';
+  document.getElementById('j-type').value = 'journee';
+  toggleTypeFields();
+}
+
+function deleteJournee(id) {
+  confirm2('Supprimer cette journée ?', () => {
+    journees = journees.filter(j => j.id !== id);
+    saveData('ft_journees', journees);
+    toast('Journée supprimée');
+    renderJourneesTable();
+    renderDashboard();
+  });
+}
+
+function filterJournees(boulotId, el) {
+  activeJourneeFilter = boulotId;
+  document.querySelectorAll('#journeeFilters .filter-chip').forEach(c => c.classList.remove('active'));
+  el.classList.add('active');
+  renderJourneesTable();
+}
+
+// ======================== GENERIC CALENDAR HELPERS ========================
+// Shared by Journées, Récap Mensuel, Dashboard, Autoroute et Virements.
+
+function calendarCellsForMonth(year, month) {
+  const startOffset = (new Date(year, month-1, 1).getDay() + 6) % 7; // Monday = 0
+  const daysInMonth = new Date(year, month, 0).getDate();
+  const prevMonthDays = new Date(year, month-1, 0).getDate();
+  const cells = [];
+  for (let i = startOffset; i > 0; i--) cells.push({ inMonth: false, day: prevMonthDays - i + 1 });
+  for (let d = 1; d <= daysInMonth; d++) {
+    cells.push({ inMonth: true, day: d, dateStr: `${year}-${String(month).padStart(2,'0')}-${String(d).padStart(2,'0')}` });
+  }
+  let nextDay = 1;
+  while (cells.length % 7 !== 0) cells.push({ inMonth: false, day: nextDay++ });
+  return cells;
+}
+
+function groupByDate(items) {
+  const byDate = {};
+  items.forEach(it => { (byDate[it.date] = byDate[it.date] || []).push(it); });
+  return byDate;
+}
+
+// opts: colorOf(item), labelOf(item), amountOf(item), onClick (function name string),
+// totalColor (css color), totalPrefix (string prepended to the day total), maxShown (default 2)
+function dayCalendarHTML(year, month, byDate, opts) {
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const cells = calendarCellsForMonth(year, month);
+  return cells.map(c => {
+    if (!c.inMonth) return `<div class="calendar-day outside"><div class="calendar-day-num">${c.day}</div></div>`;
+
+    const entries = byDate[c.dateStr] || [];
+    const isToday = c.dateStr === todayStr;
+    const clickAttr = opts.onClick ? ` onclick="${opts.onClick}('${c.dateStr}')"` : '';
+    if (entries.length === 0) {
+      return `<div class="calendar-day ${isToday?'today':''}"${clickAttr}><div class="calendar-day-num">${c.day}</div></div>`;
+    }
+    const total = entries.reduce((s,it) => s + opts.amountOf(it), 0);
+    const shown = entries.slice(0, opts.maxShown || 2);
+    const extra = entries.length - shown.length;
+    // amountOf can return signed values (e.g. journées + péages merged) — a negative
+    // net total always renders with the app's "−" glyph rather than a raw minus sign.
+    const totalColor = opts.totalColor || (total < 0 ? 'var(--rose)' : 'var(--emerald)');
+    const totalText = total < 0 ? `−${fmt(Math.abs(total))}` : `${opts.totalPrefix || ''}${fmt(total)}`;
+    return `
+      <div class="calendar-day has-events ${isToday?'today':''}"${clickAttr}>
+        <div class="calendar-day-num">${c.day}</div>
+        <div class="calendar-day-events">
+          ${shown.map(it => `
+            <div class="calendar-event">
+              <span class="job-dot" style="background:${opts.colorOf(it)}"></span><span class="evt-label">${opts.labelOf(it)}</span>
+            </div>
+          `).join('')}
+          ${extra > 0 ? `<div class="calendar-day-more">+${extra}</div>` : ''}
+        </div>
+        <div class="calendar-day-total" style="color:${totalColor}">${totalText}</div>
+      </div>
+    `;
+  }).join('');
+}
+
+function renderJourneesTable() {
+  const [y, m] = calendarMonth.split('-').map(Number);
+  document.getElementById('calendarMonthLabel').textContent = `${MONTHS_FR[m-1]} ${y}`;
+
+  let data = journees.filter(j => j.date && j.date.startsWith(calendarMonth));
+  if (activeJourneeFilter) data = data.filter(j => j.boulotId === activeJourneeFilter);
+
+  let peages = autoroutes.filter(a => a.date && a.date.startsWith(calendarMonth));
+  if (activeJourneeFilter) peages = peages.filter(a => a.boulotId === activeJourneeFilter);
+
+  // Merge journées et péages sur le même calendrier — chaque case affiche le net du jour.
+  const merged = [
+    ...data.map(j => ({ kind: 'journee', ref: j, date: j.date })),
+    ...peages.map(a => ({ kind: 'peage', ref: a, date: a.date }))
+  ];
+
+  document.getElementById('journeesCalendar').innerHTML = dayCalendarHTML(y, m, groupByDate(merged), {
+    colorOf: it => it.kind === 'peage' ? 'var(--rose)' : getJobColor(it.ref.boulotId),
+    labelOf: it => it.kind === 'peage' ? '🛣️ ' + (it.ref.trajet || 'Péage') : getJobName(it.ref.boulotId),
+    amountOf: it => it.kind === 'peage' ? -(parseFloat(it.ref.montant) || 0) : calcJourneeAmount(it.ref),
+    onClick: 'openDayModal'
+  });
+
+  renderJourneeFilters();
+}
+
+function changeCalendarMonth(delta) {
+  let [y, m] = calendarMonth.split('-').map(Number);
+  m += delta;
+  if (m < 1) { m = 12; y -= 1; }
+  if (m > 12) { m = 1; y += 1; }
+  calendarMonth = `${y}-${String(m).padStart(2,'0')}`;
+  renderJourneesTable();
+}
+
+function goToCurrentMonth() {
+  const now = new Date();
+  calendarMonth = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
+  renderJourneesTable();
+}
+
+function journeesOfDay(dateStr) {
+  return journees.filter(j => j.date === dateStr && (!activeJourneeFilter || j.boulotId === activeJourneeFilter));
+}
+function peagesOfDay(dateStr) {
+  return autoroutes.filter(a => a.date === dateStr && (!activeJourneeFilter || a.boulotId === activeJourneeFilter));
+}
+
+function openDayModal(dateStr) {
+  const jEntries = journeesOfDay(dateStr);
+  const pEntries = peagesOfDay(dateStr);
+  document.getElementById('dayModalTitle').textContent = `📅 ${fmtDate(dateStr)}`;
+
+  const rows = [
+    ...jEntries.map(j => `
+      <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; padding:12px; background:var(--bg-card); border:1px solid var(--border); border-radius:var(--radius-sm);">
+        <div style="display:flex; flex-direction:column; gap:4px;">
+          <div style="display:flex; align-items:center; gap:6px; font-weight:600;">
+            <span class="job-dot" style="background:${getJobColor(j.boulotId)}"></span>${getJobName(j.boulotId)}
+            <span class="badge ${j.type==='journee'?'badge-day':'badge-hour'}">${j.type==='journee'?'Journée':'Heure'}</span>
+          </div>
+          <div style="font-size:12px; color:var(--text-muted);">${formatJourneeDetail(j)}${j.note ? ' · ' + j.note : ''}</div>
+        </div>
+        <div style="display:flex; align-items:center; gap:10px;">
+          <div class="amount-positive">${fmt(calcJourneeAmount(j))}</div>
+          <button class="btn btn-danger btn-sm" onclick="deleteJourneeFromDay('${j.id}', '${dateStr}')">🗑️</button>
+        </div>
+      </div>
+    `),
+    ...pEntries.map(a => `
+      <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; padding:12px; background:var(--bg-card); border:1px solid var(--border); border-radius:var(--radius-sm);">
+        <div style="display:flex; flex-direction:column; gap:4px;">
+          <div style="display:flex; align-items:center; gap:6px; font-weight:600;">
+            <span class="job-dot" style="background:var(--rose)"></span>${a.trajet || 'Péage'}
+            <span class="badge badge-pending">🛣️ Péage</span>
+          </div>
+          <div style="font-size:12px; color:var(--text-muted);">${a.boulotId ? getJobName(a.boulotId) : 'Aucun boulot lié'}</div>
+        </div>
+        <div style="display:flex; align-items:center; gap:10px;">
+          <div class="amount-negative">−${fmt(a.montant)}</div>
+          <button class="btn btn-danger btn-sm" onclick="deletePeageFromJourneesDay('${a.id}', '${dateStr}')">🗑️</button>
+        </div>
+      </div>
+    `)
+  ];
+
+  document.getElementById('dayModalBody').innerHTML = rows.length === 0
+    ? `<div class="empty-state"><div class="empty-icon">📅</div><p>Rien ce jour</p></div>`
+    : rows.join('');
+
+  document.getElementById('dayModalAddBtn').textContent = '➕ Ajouter ce jour';
+  document.getElementById('dayModalAddBtn').onclick = () => {
+    closeModal('dayModal');
+    document.getElementById('j-date').value = dateStr;
+    document.getElementById('j-date').scrollIntoView({ behavior: 'smooth', block: 'center' });
+  };
+
+  document.getElementById('dayModal').classList.add('open');
+}
+
+function closeDayModalIfEmpty(dateStr) {
+  if (journeesOfDay(dateStr).length === 0 && peagesOfDay(dateStr).length === 0) closeModal('dayModal');
+  else openDayModal(dateStr);
+}
+
+function deleteJourneeFromDay(id, dateStr) {
+  confirm2('Supprimer cette journée ?', () => {
+    journees = journees.filter(j => j.id !== id);
+    saveData('ft_journees', journees);
+    toast('Journée supprimée');
+    renderJourneesTable();
+    closeDayModalIfEmpty(dateStr);
+  });
+}
+
+function deletePeageFromJourneesDay(id, dateStr) {
+  confirm2('Supprimer ce péage ?', () => {
+    autoroutes = autoroutes.filter(a => a.id !== id);
+    saveData('ft_autoroutes', autoroutes);
+    toast('Péage supprimé');
+    renderJourneesTable();
+    closeDayModalIfEmpty(dateStr);
+  });
+}
+
+function renderJourneeFilters() {
+  const container = document.getElementById('journeeFilters');
+  container.innerHTML = `
+    <span style="font-size:13px; color:var(--text-muted)">Filtrer :</span>
+    <button class="filter-chip ${!activeJourneeFilter?'active':''}" onclick="filterJournees(null, this)" data-filter="all">Tous</button>
+    ${boulots.map(b => `<button class="filter-chip ${activeJourneeFilter===b.id?'active':''}" onclick="filterJournees('${b.id}', this)">
+      <span class="job-dot" style="background:${b.couleur}"></span>${b.nom}
+    </button>`).join('')}
+  `;
+}
+
+// ======================== PRIMES ========================
+
+function addPrime() {
+  const mois = document.getElementById('p-mois').value;
+  const label = document.getElementById('p-label').value.trim();
+  const boulotId = document.getElementById('p-boulot').value;
+  const montant = document.getElementById('p-montant').value;
+
+  if (!mois) { toast('Choisissez un mois', 'error'); return; }
+  if (!label) { toast('Saisissez un libellé', 'error'); return; }
+  if (!montant) { toast('Saisissez un montant', 'error'); return; }
+
+  primes.push({ id:genId(), mois, label, boulotId, montant });
+  saveData('ft_primes', primes);
+  toast('Prime ajoutée ✅');
+  ['p-mois','p-label','p-montant'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('p-boulot').value = '';
+  renderPrimesTable();
+}
+
+function deletePrime(id, moKey) {
+  confirm2('Supprimer cette prime ?', () => {
+    primes = primes.filter(p => p.id !== id);
+    saveData('ft_primes', primes);
+    toast('Prime supprimée');
+    renderPrimesTable();
+    if (!moKey) return;
+    const remaining = primes.filter(p => p.mois === moKey);
+    if (remaining.length === 0) closeModal('dayModal'); else openPrimesMonthModal(moKey);
+  });
+}
+
+function renderPrimesTable() {
+  document.getElementById('primesYearLabel').textContent = `Année ${selectedYear}`;
+  const byMonth = groupByDate(primes.filter(p => p.mois && p.mois.startsWith(String(selectedYear))).map(p => ({ ...p, date: p.mois })));
+  const todayMoKey = `${CURRENT_YEAR}-${String(new Date().getMonth()+1).padStart(2,'0')}`;
+
+  document.getElementById('primesCalendar').innerHTML = Array.from({ length: 12 }, (_, i) => {
+    const moKey = `${selectedYear}-${String(i+1).padStart(2,'0')}`;
+    const entries = byMonth[moKey] || [];
+    const isCurrent = moKey === todayMoKey;
+    if (entries.length === 0) {
+      return `<div class="calendar-day ${isCurrent?'today':''}" onclick="openPrimesMonthModal('${moKey}')"><div class="month-cell-name">${MONTHS_FR[i]}</div></div>`;
+    }
+    const total = entries.reduce((s,p) => s + (parseFloat(p.montant)||0), 0);
+    const shown = entries.slice(0, 2);
+    const extra = entries.length - shown.length;
+    return `
+      <div class="calendar-day has-events ${isCurrent?'today':''}" onclick="openPrimesMonthModal('${moKey}')">
+        <div class="month-cell-name">${MONTHS_FR[i]}</div>
+        <div class="calendar-day-events">
+          ${shown.map(p => `<div class="calendar-event"><span class="job-dot" style="background:var(--amber)"></span><span class="evt-label">${p.label}</span></div>`).join('')}
+          ${extra > 0 ? `<div class="calendar-day-more">+${extra}</div>` : ''}
+        </div>
+        <div class="calendar-day-total" style="color:var(--amber)">${fmt(total)}</div>
+      </div>
+    `;
+  }).join('');
+}
+
+function openPrimesMonthModal(moKey) {
+  const [y, m] = moKey.split('-');
+  const entries = primes.filter(p => p.mois === moKey);
+  document.getElementById('dayModalTitle').textContent = `🏆 ${MONTHS_FR[parseInt(m)-1]} ${y}`;
+
+  const body = document.getElementById('dayModalBody');
+  body.innerHTML = entries.length === 0
+    ? `<div class="empty-state"><div class="empty-icon">🏆</div><p>Aucune prime ce mois</p></div>`
+    : entries.map(p => `
+      <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; padding:12px; background:var(--bg-card); border:1px solid var(--border); border-radius:var(--radius-sm);">
+        <div style="display:flex; flex-direction:column; gap:4px;">
+          <div style="font-weight:600;">${p.label}</div>
+          <div style="font-size:12px; color:var(--text-muted);">${p.boulotId ? getJobName(p.boulotId) : 'Aucun boulot lié'}</div>
+        </div>
+        <div style="display:flex; align-items:center; gap:10px;">
+          <div class="amount-positive">${fmt(p.montant)}</div>
+          <button class="btn btn-danger btn-sm" onclick="deletePrime('${p.id}', '${moKey}')">🗑️</button>
+        </div>
+      </div>
+    `).join('');
+
+  document.getElementById('dayModalAddBtn').textContent = '➕ Ajouter ce mois';
+  document.getElementById('dayModalAddBtn').onclick = () => {
+    closeModal('dayModal');
+    document.getElementById('p-mois').value = moKey;
+    document.getElementById('p-mois').scrollIntoView({ behavior: 'smooth', block: 'center' });
+  };
+
+  document.getElementById('dayModal').classList.add('open');
+}
+
+// ======================== AUTOROUTE ========================
+
+function addAutoroute() {
+  const date = document.getElementById('a-date').value;
+  const trajet = document.getElementById('a-trajet').value.trim();
+  const boulotId = document.getElementById('a-boulot').value;
+  const montant = document.getElementById('a-montant').value;
+
+  if (!date) { toast('Choisissez une date', 'error'); return; }
+  if (!montant) { toast('Saisissez un montant', 'error'); return; }
+
+  autoroutes.push({ id:genId(), date, trajet, boulotId, montant });
+  saveData('ft_autoroutes', autoroutes);
+  toast('Péage ajouté ✅');
+  ['a-date','a-trajet','a-montant'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('a-boulot').value = '';
+  renderAutorouteTable();
+}
+
+function deleteAutoroute(id, dateStr) {
+  confirm2('Supprimer ce péage ?', () => {
+    autoroutes = autoroutes.filter(a => a.id !== id);
+    saveData('ft_autoroutes', autoroutes);
+    toast('Péage supprimé');
+    renderAutorouteTable();
+    if (!dateStr) return;
+    const remaining = autoroutes.filter(a => a.date === dateStr);
+    if (remaining.length === 0) closeModal('dayModal'); else openAutorouteDayModal(dateStr);
+  });
+}
+
+function changeAutorouteMonth(delta) {
+  let [y, m] = autorouteCalendarMonth.split('-').map(Number);
+  m += delta;
+  if (m < 1) { m = 12; y -= 1; }
+  if (m > 12) { m = 1; y += 1; }
+  autorouteCalendarMonth = `${y}-${String(m).padStart(2,'0')}`;
+  renderAutorouteTable();
+}
+
+function goToAutorouteCurrentMonth() {
+  const now = new Date();
+  autorouteCalendarMonth = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
+  renderAutorouteTable();
+}
+
+function openAutorouteDayModal(dateStr) {
+  const entries = autoroutes.filter(a => a.date === dateStr);
+  document.getElementById('dayModalTitle').textContent = `🛣️ ${fmtDate(dateStr)}`;
+
+  const body = document.getElementById('dayModalBody');
+  body.innerHTML = entries.length === 0
+    ? `<div class="empty-state"><div class="empty-icon">🛣️</div><p>Aucun péage ce jour</p></div>`
+    : entries.map(a => `
+      <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; padding:12px; background:var(--bg-card); border:1px solid var(--border); border-radius:var(--radius-sm);">
+        <div style="display:flex; flex-direction:column; gap:4px;">
+          <div style="font-weight:600;">${a.trajet || 'Péage'}</div>
+          <div style="font-size:12px; color:var(--text-muted);">${a.boulotId ? getJobName(a.boulotId) : 'Aucun boulot lié'}</div>
+        </div>
+        <div style="display:flex; align-items:center; gap:10px;">
+          <div class="amount-negative">−${fmt(a.montant)}</div>
+          <button class="btn btn-danger btn-sm" onclick="deleteAutoroute('${a.id}', '${dateStr}')">🗑️</button>
+        </div>
+      </div>
+    `).join('');
+
+  document.getElementById('dayModalAddBtn').textContent = '➕ Ajouter ce jour';
+  document.getElementById('dayModalAddBtn').onclick = () => {
+    closeModal('dayModal');
+    document.getElementById('a-date').value = dateStr;
+    document.getElementById('a-date').scrollIntoView({ behavior: 'smooth', block: 'center' });
+  };
+
+  document.getElementById('dayModal').classList.add('open');
+}
+
+function renderAutorouteTable() {
+  const data = autoroutes.filter(a => a.date && a.date.startsWith(String(selectedYear)));
+  data.sort((a,b) => b.date.localeCompare(a.date));
+  const total = data.reduce((s,a) => s+(parseFloat(a.montant)||0), 0);
+  document.getElementById('autorouteTotalBadge').textContent = `Total : ${fmt(total)}`;
+
+  const [cy, cm] = autorouteCalendarMonth.split('-').map(Number);
+  document.getElementById('autorouteMonthLabel').textContent = `${MONTHS_FR[cm-1]} ${cy}`;
+  const monthData = autoroutes.filter(a => a.date && a.date.startsWith(autorouteCalendarMonth));
+  document.getElementById('autorouteCalendar').innerHTML = dayCalendarHTML(cy, cm, groupByDate(monthData), {
+    colorOf: a => a.boulotId ? getJobColor(a.boulotId) : 'var(--rose)',
+    labelOf: a => a.trajet || (a.boulotId ? getJobName(a.boulotId) : 'Péage'),
+    amountOf: a => parseFloat(a.montant) || 0,
+    onClick: 'openAutorouteDayModal',
+    totalColor: 'var(--rose)',
+    totalPrefix: '−'
+  });
+
+  if (data.length === 0) {
+    document.getElementById('autorouteRecap').innerHTML = '';
+    return;
+  }
+
+  // ---- RÉCAP ----
+  // Par mois
+  const byMonth = {};
+  data.forEach(a => {
+    const mk = a.date.slice(0,7);
+    byMonth[mk] = (byMonth[mk]||0) + (parseFloat(a.montant)||0);
+  });
+  const sortedMonths = Object.keys(byMonth).sort();
+
+  // Par boulot
+  const byBoulot = {};
+  data.forEach(a => {
+    const bid = a.boulotId || '__none__';
+    if (!byBoulot[bid]) byBoulot[bid] = { count:0, total:0 };
+    byBoulot[bid].count++;
+    byBoulot[bid].total += parseFloat(a.montant)||0;
+  });
+
+  const maxMois = Math.max(...Object.values(byMonth), 1);
+
+  let html = `
+    <!-- KPIs -->
+    <div class="stats-grid" style="margin-bottom:24px;">
+      <div class="stat-card" style="--accent-color:var(--rose)">
+        <span class="stat-icon">🛣️</span>
+        <div class="stat-label">Total péages ${selectedYear}</div>
+        <div class="stat-value" style="color:var(--rose)">${fmt(total)}</div>
+        <div class="stat-sub">${data.length} trajet(s)</div>
+      </div>
+      <div class="stat-card" style="--accent-color:var(--amber)">
+        <span class="stat-icon">📅</span>
+        <div class="stat-label">Moyenne / mois</div>
+        <div class="stat-value" style="color:var(--amber)">${fmt(total / Math.max(sortedMonths.length,1))}</div>
+        <div class="stat-sub">${sortedMonths.length} mois avec péages</div>
+      </div>
+      <div class="stat-card" style="--accent-color:var(--sky)">
+        <span class="stat-icon">🔝</span>
+        <div class="stat-label">Mois le + coûteux</div>
+        <div class="stat-value" style="color:var(--sky)">${fmt(Math.max(...Object.values(byMonth)))}</div>
+        <div class="stat-sub">${(() => { const maxK = Object.keys(byMonth).reduce((a,b)=>byMonth[a]>byMonth[b]?a:b,''); if(!maxK) return '—'; const [y,m]=maxK.split('-'); return MONTHS_FR[parseInt(m)-1]+' '+y; })()}</div>
+      </div>
+      <div class="stat-card" style="--accent-color:var(--emerald)">
+        <span class="stat-icon">📊</span>
+        <div class="stat-label">Nb boulots concernés</div>
+        <div class="stat-value" style="color:var(--emerald)">${Object.keys(byBoulot).length}</div>
+        <div class="stat-sub">tâche(s) avec péages</div>
+      </div>
+    </div>
+
+    <!-- Par mois -->
+    <div class="chart-container" style="margin-bottom:24px;">
+      <div class="section-header" style="margin-bottom:16px;">
+        <div class="section-title" style="font-size:16px;">📅 Répartition mensuelle</div>
+      </div>
+      ${sortedMonths.map(mk => {
+        const [y,m] = mk.split('-');
+        const pct = Math.round((byMonth[mk]/maxMois)*100);
+        const count = data.filter(a=>a.date.startsWith(mk)).length;
+        return `
+          <div style="display:flex; align-items:center; gap:12px; margin-bottom:10px;">
+            <div style="width:80px; font-size:12px; font-weight:600; color:var(--text-secondary); flex-shrink:0;">${MONTHS_SHORT[parseInt(m)-1]} ${y}</div>
+            <div style="flex:1;">
+              <div class="progress-bar-wrap" style="margin-top:0; height:10px;">
+                <div class="progress-bar-fill" style="width:${pct}%; background:linear-gradient(90deg,var(--rose),#ff6b6b);"></div>
+              </div>
+            </div>
+            <div style="width:80px; text-align:right; font-size:13px; font-weight:700; color:var(--rose);">−${fmt(byMonth[mk])}</div>
+            <div style="width:50px; text-align:right; font-size:11px; color:var(--text-muted);">${count} trajet${count>1?'s':''}</div>
+          </div>
+        `;
+      }).join('')}
+    </div>
+
+    <!-- Par boulot -->
+    <div class="chart-container">
+      <div class="section-header" style="margin-bottom:16px;">
+        <div class="section-title" style="font-size:16px;">💼 Péages par boulot</div>
+      </div>
+      ${Object.entries(byBoulot).map(([bid, d]) => {
+        const b = getBoulot(bid);
+        const pct = Math.round((d.total/total)*100);
+        return `
+          <div class="recap-job-row">
+            <div class="recap-job-info">
+              <div class="recap-job-color" style="background:${b?b.couleur:'#8b5cf6'}"></div>
+              <div>
+                <div class="recap-job-name">${b?b.nom:'Non assigné'}</div>
+                <div class="recap-job-sub">${d.count} trajet${d.count>1?'s':''} · ${pct}% du total</div>
+              </div>
+            </div>
+            <div class="recap-job-amount" style="color:var(--rose);">−${fmt(d.total)}</div>
+          </div>
+        `;
+      }).join('')}
+    </div>
+  `;
+
+  document.getElementById('autorouteRecap').innerHTML = html;
+}
+
+function exportAutoRoutePDF() {
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ orientation:'portrait', unit:'mm', format:'a4' });
+  const data = autoroutes.filter(a => a.date && a.date.startsWith(String(selectedYear)));
+  data.sort((a,b) => a.date.localeCompare(b.date));
+  const total = data.reduce((s,a) => s+(parseFloat(a.montant)||0), 0);
+
+  // Par mois
+  const byMonth = {};
+  data.forEach(a => {
+    const mk = a.date.slice(0,7);
+    byMonth[mk] = (byMonth[mk]||0) + (parseFloat(a.montant)||0);
+  });
+
+  // Par boulot
+  const byBoulot = {};
+  data.forEach(a => {
+    const bid = a.boulotId || '__none__';
+    if (!byBoulot[bid]) byBoulot[bid] = { count:0, total:0, nom: getJobName(a.boulotId) };
+    byBoulot[bid].count++;
+    byBoulot[bid].total += parseFloat(a.montant)||0;
+  });
+
+  // HEADER
+  doc.setFillColor(26, 26, 46);
+  doc.rect(0, 0, 210, 50, 'F');
+  doc.setFillColor(244, 63, 94); // rose accent
+  doc.rect(0, 0, 210, 3, 'F');
+
+  doc.setTextColor(255,255,255);
+  doc.setFontSize(22); doc.setFont('helvetica','bold');
+  doc.text('FreelanceTracker — Péages Autoroute', 14, 20);
+  doc.setFontSize(13); doc.setFont('helvetica','normal');
+  doc.text(`Récapitulatif annuel ${selectedYear}`, 14, 32);
+  doc.setFontSize(9); doc.setTextColor(150,150,200);
+  doc.text(`Généré le ${new Date().toLocaleDateString('fr-FR')} à ${new Date().toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'})}`, 14, 42);
+
+  let y = 60;
+
+  // KPI BOXES
+  const sortedMonths = Object.keys(byMonth).sort();
+  const kpis = [
+    { label:'Total péages', val:fmt(total), color:[244,63,94] },
+    { label:'Nb trajets', val:`${data.length}`, color:[245,158,11] },
+    { label:'Moy./mois', val:fmt(total/Math.max(sortedMonths.length,1)), color:[14,165,233] },
+    { label:'Mois actifs', val:`${sortedMonths.length}`, color:[139,92,246] },
+  ];
+  const boxW = 44; const boxGap = 4;
+  kpis.forEach((k,i) => {
+    const bx = 14 + i*(boxW+boxGap);
+    doc.setFillColor(26,26,50);
+    doc.roundedRect(bx, y, boxW, 22, 3, 3, 'F');
+    doc.setDrawColor(...k.color); doc.setLineWidth(0.5);
+    doc.roundedRect(bx, y, boxW, 22, 3, 3, 'S');
+    doc.setFontSize(8); doc.setTextColor(150,150,200); doc.setFont('helvetica','normal');
+    doc.text(k.label, bx+boxW/2, y+8, {align:'center'});
+    doc.setFontSize(10); doc.setTextColor(...k.color); doc.setFont('helvetica','bold');
+    doc.text(k.val, bx+boxW/2, y+17, {align:'center'});
+  });
+
+  y += 32;
+
+  // RÉCAP PAR MOIS
+  doc.setFontSize(12); doc.setFont('helvetica','bold'); doc.setTextColor(40,40,70);
+  doc.text('Répartition mensuelle', 14, y); y += 5;
+
+  doc.autoTable({
+    startY: y,
+    head: [['Mois', 'Nb trajets', 'Montant']],
+    body: sortedMonths.map(mk => {
+      const [yr,m] = mk.split('-');
+      const count = data.filter(a=>a.date.startsWith(mk)).length;
+      return [MONTHS_FR[parseInt(m)-1]+' '+yr, `${count} trajet${count>1?'s':''}`, fmt(byMonth[mk])];
+    }),
+    theme:'grid',
+    headStyles: { fillColor:[244,63,94], textColor:255, fontStyle:'bold', fontSize:9 },
+    bodyStyles: { fontSize:9 },
+    columnStyles: { 2:{ halign:'right', fontStyle:'bold', textColor:[244,63,94] } },
+    foot: [['Total', `${data.length} trajets`, fmt(total)]],
+    footStyles: { fillColor:[26,26,46], textColor:[244,63,94], fontStyle:'bold', fontSize:9 },
+    margin: { left:14, right:14 },
+  });
+  y = doc.lastAutoTable.finalY + 10;
+
+  // RÉCAP PAR BOULOT
+  if (Object.keys(byBoulot).length > 0) {
+    if (y > 220) { doc.addPage(); y = 20; }
+    doc.setFontSize(12); doc.setFont('helvetica','bold'); doc.setTextColor(40,40,70);
+    doc.text('Répartition par boulot', 14, y); y += 5;
+
+    doc.autoTable({
+      startY: y,
+      head: [['Boulot', 'Nb trajets', 'Montant', '% du total']],
+      body: Object.entries(byBoulot).map(([bid, d]) => [
+        d.nom || 'Non assigné',
+        `${d.count} trajet${d.count>1?'s':''}`,
+        fmt(d.total),
+        `${Math.round((d.total/total)*100)}%`
+      ]),
+      theme:'striped',
+      headStyles: { fillColor:[139,92,246], textColor:255, fontStyle:'bold', fontSize:9 },
+      bodyStyles: { fontSize:9 },
+      columnStyles: { 2:{ halign:'right', fontStyle:'bold', textColor:[244,63,94] }, 3:{ halign:'center' } },
+      margin: { left:14, right:14 },
+    });
+    y = doc.lastAutoTable.finalY + 10;
+  }
+
+  // DÉTAIL COMPLET
+  if (y > 220) { doc.addPage(); y = 20; }
+  doc.setFontSize(12); doc.setFont('helvetica','bold'); doc.setTextColor(40,40,70);
+  doc.text('Détail de tous les trajets', 14, y); y += 5;
+
+  doc.autoTable({
+    startY: y,
+    head: [['Date', 'Trajet', 'Boulot', 'Montant']],
+    body: data.map(a => [fmtDate(a.date), a.trajet||'—', getJobName(a.boulotId), fmt(a.montant)]),
+    theme:'grid',
+    headStyles: { fillColor:[26,26,46], textColor:255, fontStyle:'bold', fontSize:9 },
+    bodyStyles: { fontSize:8.5 },
+    columnStyles: { 3:{ halign:'right', fontStyle:'bold', textColor:[244,63,94] } },
+    foot: [['', '', 'TOTAL', fmt(total)]],
+    footStyles: { fillColor:[244,63,94], textColor:255, fontStyle:'bold', fontSize:9 },
+    margin: { left:14, right:14 },
+  });
+
+  // FOOTER
+  const pageCount = doc.getNumberOfPages();
+  for (let i=1; i<=pageCount; i++) {
+    doc.setPage(i);
+    doc.setFontSize(8); doc.setFont('helvetica','normal'); doc.setTextColor(100,100,140);
+    doc.text(`FreelanceTracker — Péages ${selectedYear} — Page ${i}/${pageCount}`, 14, 287);
+    doc.text('Auto-entrepreneur', 196, 287, {align:'right'});
+  }
+
+  doc.save(`Peages_${selectedYear}.pdf`);
+  toast('PDF péages téléchargé 📄');
+}
+
+// ======================== VIREMENTS ========================
+
+function virementTypeLabel(type) {
+  if (type === 'peage') return 'Avancement Péage';
+  if (type === 'prime') return 'Prime';
+  return 'Prestation';
+}
+
+function virementTypeBadgeClass(type) {
+  if (type === 'peage') return 'badge-pending';
+  if (type === 'prime') return 'badge-hour';
+  return 'badge-paid';
+}
+
+function virementTypeColor(type) {
+  if (type === 'peage') return 'var(--rose)';
+  if (type === 'prime') return 'var(--amber)';
+  return 'var(--sky)';
+}
+
+// Ce que le client doit encore verser = travail + péages avancés de sa poche,
+// moins ce qui a déjà été reçu pour ces deux postes. Les primes sont un bonus
+// du client, pas une créance : elles ne comptent ni dans le dû, ni dans le reçu.
+function calcSoldeClient(journeesArr, autoroutesArr, virementsArr) {
+  const totalTravail = journeesArr.reduce((s,j) => s + calcJourneeAmount(j), 0);
+  const totalPeage = autoroutesArr.reduce((s,a) => s + (parseFloat(a.montant)||0), 0);
+  const totalDu = totalTravail + totalPeage;
+  const virementsUtiles = virementsArr
+    .filter(v => v.type !== 'prime')
+    .reduce((s,v) => s + (parseFloat(v.montant)||0), 0);
+  return { totalDu, virementsUtiles, reste: totalDu - virementsUtiles };
+}
+
+function addVirement() {
+  const date = document.getElementById('v-date').value;
+  const client = document.getElementById('v-client').value.trim();
+  const boulotId = document.getElementById('v-boulot').value;
+  const type = document.getElementById('v-type').value;
+  const mois = document.getElementById('v-mois').value;
+  const montant = document.getElementById('v-montant').value;
+  const ref = document.getElementById('v-ref').value.trim();
+
+  if (!date) { toast('Choisissez une date', 'error'); return; }
+  if (!montant) { toast('Saisissez un montant', 'error'); return; }
+
+  virements.push({ id:genId(), date, client, boulotId, type, mois, montant, ref });
+  saveData('ft_virements', virements);
+  toast('Virement enregistré ✅');
+  ['v-date','v-client','v-mois','v-montant','v-ref'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('v-boulot').value = '';
+  document.getElementById('v-type').value = 'prestation';
+  renderVirementsTable();
+}
+
+function deleteVirement(id, dateStr) {
+  confirm2('Supprimer ce virement ?', () => {
+    virements = virements.filter(v => v.id !== id);
+    saveData('ft_virements', virements);
+    toast('Virement supprimé');
+    renderVirementsTable();
+    if (!dateStr) return;
+    const remaining = virements.filter(v => v.date === dateStr);
+    if (remaining.length === 0) closeModal('dayModal'); else openVirementDayModal(dateStr);
+  });
+}
+
+function changeVirementsMonth(delta) {
+  let [y, m] = virementsCalendarMonth.split('-').map(Number);
+  m += delta;
+  if (m < 1) { m = 12; y -= 1; }
+  if (m > 12) { m = 1; y += 1; }
+  virementsCalendarMonth = `${y}-${String(m).padStart(2,'0')}`;
+  renderVirementsTable();
+}
+
+function goToVirementsCurrentMonth() {
+  const now = new Date();
+  virementsCalendarMonth = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
+  renderVirementsTable();
+}
+
+function openVirementDayModal(dateStr) {
+  const entries = virements.filter(v => v.date === dateStr);
+  document.getElementById('dayModalTitle').textContent = `💳 ${fmtDate(dateStr)}`;
+
+  const body = document.getElementById('dayModalBody');
+  body.innerHTML = entries.length === 0
+    ? `<div class="empty-state"><div class="empty-icon">💳</div><p>Aucun virement ce jour</p></div>`
+    : entries.map(v => `
+      <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; padding:12px; background:var(--bg-card); border:1px solid var(--border); border-radius:var(--radius-sm);">
+        <div style="display:flex; flex-direction:column; gap:4px;">
+          <div style="display:flex; align-items:center; gap:6px; font-weight:600;">
+            ${v.client || 'Virement'}
+            <span class="badge ${virementTypeBadgeClass(v.type)}">${virementTypeLabel(v.type)}</span>
+          </div>
+          <div style="font-size:12px; color:var(--text-muted);">${v.boulotId ? getJobName(v.boulotId) : ''}${v.ref ? ' · Réf: '+v.ref : ''}</div>
+        </div>
+        <div style="display:flex; align-items:center; gap:10px;">
+          <div class="amount-positive">${fmt(v.montant)}</div>
+          <button class="btn btn-danger btn-sm" onclick="deleteVirement('${v.id}', '${dateStr}')">🗑️</button>
+        </div>
+      </div>
+    `).join('');
+
+  document.getElementById('dayModalAddBtn').textContent = '➕ Ajouter ce jour';
+  document.getElementById('dayModalAddBtn').onclick = () => {
+    closeModal('dayModal');
+    document.getElementById('v-date').value = dateStr;
+    document.getElementById('v-date').scrollIntoView({ behavior: 'smooth', block: 'center' });
+  };
+
+  document.getElementById('dayModal').classList.add('open');
+}
+
+function renderVirementsTable() {
+  const yd = getYearData(selectedYear);
+  const data = yd.virements;
+  data.sort((a,b) => b.date.localeCompare(a.date));
+  const total = data.reduce((s,v) => s+(parseFloat(v.montant)||0), 0);
+  const totalGains = yd.journees.reduce((s,j)=>s+calcJourneeAmount(j),0) + yd.primes.reduce((s,p)=>s+(parseFloat(p.montant)||0),0);
+  const solde = calcSoldeClient(yd.journees, yd.autoroutes, yd.virements);
+  const reste = solde.reste;
+
+  document.getElementById('virementsTotalBadge').textContent = `Reçu : ${fmt(total)}`;
+
+  document.getElementById('virementsStats').innerHTML = `
+    <div class="stats-grid">
+      <div class="stat-card" style="--accent-color:var(--emerald)">
+        <span class="stat-icon">💰</span>
+        <div class="stat-label">Total gagné</div>
+        <div class="stat-value" style="color:var(--emerald)">${fmt(totalGains)}</div>
+      </div>
+      <div class="stat-card" style="--accent-color:var(--sky)">
+        <span class="stat-icon">💳</span>
+        <div class="stat-label">Virements reçus</div>
+        <div class="stat-value" style="color:var(--sky)">${fmt(total)}</div>
+      </div>
+      <div class="stat-card" style="--accent-color:${reste > 0 ? 'var(--amber)' : 'var(--emerald)'}">
+        <span class="stat-icon">${reste > 0 ? '⏳' : '✅'}</span>
+        <div class="stat-label">${reste > 0 ? 'Reste à recevoir' : 'Excédent reçu'}</div>
+        <div class="stat-value" style="color:${reste > 0 ? 'var(--amber)' : 'var(--emerald)'}">${fmt(Math.abs(reste))}</div>
+        <div class="progress-bar-wrap" style="margin-top:12px;">
+          <div class="progress-bar-fill" style="width:${Math.min(solde.totalDu>0?(solde.virementsUtiles/solde.totalDu)*100:0,100)}%"></div>
+        </div>
+        <div class="stat-sub">${solde.totalDu > 0 ? Math.round(Math.min((solde.virementsUtiles/solde.totalDu)*100,100)) : 0}% encaissé</div>
+      </div>
+    </div>
+  `;
+
+  const [cy, cm] = virementsCalendarMonth.split('-').map(Number);
+  document.getElementById('virementsMonthLabel').textContent = `${MONTHS_FR[cm-1]} ${cy}`;
+  const monthData = virements.filter(v => v.date && v.date.startsWith(virementsCalendarMonth));
+  document.getElementById('virementsCalendar').innerHTML = dayCalendarHTML(cy, cm, groupByDate(monthData), {
+    colorOf: v => virementTypeColor(v.type),
+    labelOf: v => v.client || virementTypeLabel(v.type),
+    amountOf: v => parseFloat(v.montant) || 0,
+    onClick: 'openVirementDayModal'
+  });
+}
+
+// ======================== BOULOTS ========================
+
+function addBoulot() {
+  const nom = document.getElementById('b-nom').value.trim();
+  const client = document.getElementById('b-client').value.trim();
+  const couleur = document.getElementById('b-couleur').value;
+  const tarifDefaut = document.getElementById('b-tarif-defaut').value;
+  const tauxDefaut = document.getElementById('b-taux-defaut').value;
+
+  if (!nom) { toast('Saisissez un nom de boulot', 'error'); return; }
+
+  boulots.push({ id:genId(), nom, client, couleur, tarifDefaut, tauxDefaut });
+  saveData('ft_boulots', boulots);
+  toast('Boulot créé ✅');
+  ['b-nom','b-client','b-tarif-defaut','b-taux-defaut'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('b-couleur').value = '#8b5cf6';
+  refreshBoulotSelects();
+  renderBoulots();
+}
+
+function deleteBoulot(id) {
+  const used = journees.some(j => j.boulotId === id);
+  if (used) { toast('Ce boulot est utilisé dans des journées, impossible de supprimer', 'error'); return; }
+  confirm2('Supprimer ce boulot ?', () => {
+    boulots = boulots.filter(b => b.id !== id);
+    saveData('ft_boulots', boulots);
+    toast('Boulot supprimé');
+    refreshBoulotSelects();
+    renderBoulots();
+  });
+}
+
+function renderBoulots() {
+  const container = document.getElementById('boulotsList');
+  if (boulots.length === 0) {
+    container.innerHTML = `<div class="empty-state" style="padding:40px;"><div class="empty-icon">⚙️</div><p>Aucun boulot créé. Commencez par en créer un !</p></div>`;
+    return;
+  }
+
+  container.innerHTML = boulots.map(b => {
+    const nbJours = journees.filter(j => j.boulotId === b.id).length;
+    const total = journees.filter(j => j.boulotId === b.id).reduce((s,j)=>s+calcJourneeAmount(j),0);
+    return `
+      <div class="form-card" style="display:flex; align-items:center; gap:20px; flex-wrap:wrap;">
+        <div style="width:48px; height:48px; border-radius:14px; background:${b.couleur}20; border:2px solid ${b.couleur};
+             display:flex; align-items:center; justify-content:center; font-size:22px; flex-shrink:0;">
+          💼
+        </div>
+        <div style="flex:1; min-width:160px;">
+          <div style="font-size:18px; font-weight:700; color:var(--text-primary); display:flex; align-items:center; gap:8px;">
+            <span class="job-dot" style="width:10px;height:10px;background:${b.couleur}"></span>${b.nom}
+          </div>
+          <div style="font-size:13px; color:var(--text-muted); margin-top:4px;">
+            ${b.client ? `👤 ${b.client} &nbsp;` : ''}
+            ${b.tarifDefaut ? `💰 ${fmt(b.tarifDefaut)}/j &nbsp;` : ''}
+            ${b.tauxDefaut ? `⏱️ ${fmt(b.tauxDefaut)}/h` : ''}
+          </div>
+        </div>
+        <div style="text-align:right;">
+          <div style="font-size:20px; font-weight:800; color:var(--emerald);">${fmt(total)}</div>
+          <div style="font-size:12px; color:var(--text-muted);">${nbJours} journée(s)</div>
+        </div>
+        <button class="btn btn-danger" onclick="deleteBoulot('${b.id}')">🗑️</button>
+      </div>
+    `;
+  }).join('');
+}
+
+function refreshBoulotSelects() {
+  const selects = ['j-boulot', 'p-boulot', 'a-boulot', 'v-boulot'];
+  selects.forEach(id => {
+    const sel = document.getElementById(id);
+    const val = sel.value;
+    sel.innerHTML = '<option value="">— Aucun —</option>' + boulots.map(b => `<option value="${b.id}">${b.nom}</option>`).join('');
+    sel.value = val;
+  });
+  updateRecapBoulotSelect();
+}
+
+// ======================== PDF EXPORT ========================
+
+// ======================== RÉCAP MENSUEL ========================
+
+let recapYear = new Date().getFullYear();
+let recapMonth = new Date().getMonth(); // 0-indexed
+let recapTypeFilter = null; // null = tous, 'journee', 'heure'
+
+function setRecapFilter(type, el) {
+  recapTypeFilter = type;
+  document.querySelectorAll('#recapTypeFilters .filter-chip').forEach(c => c.classList.remove('active'));
+  el.classList.add('active');
+  renderRecap();
+}
+
+function updateRecapBoulotSelect() {
+  const sel = document.getElementById('recapBoulotFilter');
+  if (!sel) return;
+  const val = sel.value;
+  sel.innerHTML = '<option value="">— Tous les boulots —</option>' + boulots.map(b => `<option value="${b.id}">${b.nom}</option>`).join('');
+  sel.value = val;
+}
+
+function recapPrevMonth() {
+  recapMonth--;
+  if (recapMonth < 0) { recapMonth = 11; recapYear--; }
+  renderRecap();
+}
+function recapNextMonth() {
+  recapMonth++;
+  if (recapMonth > 11) { recapMonth = 0; recapYear++; }
+  renderRecap();
+}
+function setRecapMonth(val) {
+  if (!val) return;
+  recapYear = parseInt(val.slice(0,4));
+  recapMonth = parseInt(val.slice(5,7)) - 1;
+  renderRecap();
+}
+
+function getMonthKey() {
+  return `${recapYear}-${String(recapMonth+1).padStart(2,'0')}`;
+}
+
+function renderRecap() {
+  const moKey = getMonthKey();
+  document.getElementById('recapMonthLabel').textContent = `${MONTHS_FR[recapMonth]} ${recapYear}`;
+  document.getElementById('recapMonthPicker').value = moKey;
+
+  // Collect data for this month
+  const boulotFilter = document.getElementById('recapBoulotFilter').value;
+  const jMois   = journees.filter(j => j.date && j.date.startsWith(moKey))
+    .filter(j => !recapTypeFilter || j.type === recapTypeFilter)
+    .filter(j => !boulotFilter || j.boulotId === boulotFilter);
+  const pMois   = primes.filter(p => p.mois === moKey);
+  const aMois   = autoroutes.filter(a => a.date && a.date.startsWith(moKey));
+  const vMois   = virements.filter(v => v.date && v.date.startsWith(moKey));
+
+  const totalJ  = jMois.reduce((s,j) => s + calcJourneeAmount(j), 0);
+  const totalP  = pMois.reduce((s,p) => s + (parseFloat(p.montant)||0), 0);
+  const totalA  = aMois.reduce((s,a) => s + (parseFloat(a.montant)||0), 0);
+  const totalV  = vMois.reduce((s,v) => s + (parseFloat(v.montant)||0), 0);
+  const totalBrut = totalJ + totalP;
+  const totalNet  = totalBrut - totalA;
+  const reste     = calcSoldeClient(jMois, aMois, vMois).reste;
+
+  const nbJours  = jMois.filter(j => j.type==='journee').length;
+  const nbHeures = jMois.filter(j => j.type==='heure').reduce((s,j) => s+(parseFloat(j.heures)||0), 0);
+
+  // Group journées by boulot
+  const byBoulot = {};
+  jMois.forEach(j => {
+    const bid = j.boulotId || '__none__';
+    if (!byBoulot[bid]) byBoulot[bid] = { jours:[], heures:0, total:0 };
+    byBoulot[bid].jours.push(j);
+    byBoulot[bid].total += calcJourneeAmount(j);
+    if (j.type === 'heure') byBoulot[bid].heures += parseFloat(j.heures)||0;
+  });
+
+  let html = '';
+
+  // ---- KPI row ----
+  html += `
+    <div class="stats-grid" style="margin-bottom:28px;">
+      <div class="stat-card" style="--accent-color:var(--accent)">
+        <span class="stat-icon">📅</span>
+        <div class="stat-label">Jours travaillés</div>
+        <div class="stat-value" style="color:var(--accent-light)">${nbJours}</div>
+        <div class="stat-sub">${nbHeures>0?nbHeures+' heure(s) sup':''}</div>
+      </div>
+      <div class="stat-card" style="--accent-color:var(--emerald)">
+        <span class="stat-icon">💰</span>
+        <div class="stat-label">Revenus bruts</div>
+        <div class="stat-value" style="color:var(--emerald)">${fmt(totalBrut)}</div>
+        <div class="stat-sub">Journées + Primes</div>
+      </div>
+      <div class="stat-card" style="--accent-color:var(--rose)">
+        <span class="stat-icon">🛣️</span>
+        <div class="stat-label">Péages</div>
+        <div class="stat-value" style="color:var(--rose)">${fmt(totalA)}</div>
+        <div class="stat-sub">${aMois.length} trajet(s)</div>
+      </div>
+      <div class="stat-card" style="--accent-color:${reste>0?'var(--amber)':'var(--emerald)'}">
+        <span class="stat-icon">${reste>0?'⏳':'✅'}</span>
+        <div class="stat-label">${reste>0?'Reste à recevoir':'Excédent'}</div>
+        <div class="stat-value" style="color:${reste>0?'var(--amber)':'var(--emerald)'}">${fmt(Math.abs(reste))}</div>
+        <div class="stat-sub">Reçu : ${fmt(totalV)}</div>
+      </div>
+    </div>
+  `;
+
+  // ---- Journées par boulot ----
+  if (jMois.length > 0) {
+    html += `<div class="recap-section">
+      <div class="recap-section-title">📅 Journées de travail</div>`;
+
+    Object.entries(byBoulot).forEach(([bid, data]) => {
+      const b = getBoulot(bid);
+      const nbJ = data.jours.filter(j=>j.type==='journee').length;
+      const nbH = data.jours.filter(j=>j.type==='heure').reduce((s,j)=>s+(parseFloat(j.heures)||0),0);
+      html += `
+        <div class="recap-job-row">
+          <div class="recap-job-info">
+            <div class="recap-job-color" style="background:${b?b.couleur:'#8b5cf6'}"></div>
+            <div>
+              <div class="recap-job-name">${b?b.nom:'Non assigné'}</div>
+              <div class="recap-job-sub">${nbJ>0?nbJ+' journée(s)':''} ${nbH>0?nbH+'h':''}${b&&b.client?' · '+b.client:''}</div>
+            </div>
+          </div>
+          <div class="recap-job-amount">${fmt(data.total)}</div>
+        </div>
+      `;
+    });
+
+    // Calendrier du mois
+    html += `
+      <div class="table-wrapper" style="margin-top:12px;">
+        <div class="calendar-wrap">
+          <div class="calendar-weekdays">
+            <div>Lun</div><div>Mar</div><div>Mer</div><div>Jeu</div><div>Ven</div><div>Sam</div><div>Dim</div>
+          </div>
+          <div class="calendar-grid">${dayCalendarHTML(recapYear, recapMonth+1, groupByDate(jMois), {
+            colorOf: j => getJobColor(j.boulotId),
+            labelOf: j => getJobName(j.boulotId),
+            amountOf: j => calcJourneeAmount(j),
+            onClick: 'openDayModal'
+          })}</div>
+        </div>
+      </div>
+    </div>`;
+  }
+
+  // ---- Primes ----
+  if (pMois.length > 0) {
+    html += `<div class="recap-section">
+      <div class="recap-section-title">🏆 Primes du mois</div>`;
+    pMois.forEach(p => {
+      html += `
+        <div class="recap-job-row">
+          <div class="recap-job-info">
+            <div class="recap-job-color" style="background:var(--amber)"></div>
+            <div>
+              <div class="recap-job-name">${p.label}</div>
+              <div class="recap-job-sub">${p.boulotId?getJobName(p.boulotId):''}</div>
+            </div>
+          </div>
+          <div class="recap-job-amount" style="color:var(--amber)">${fmt(p.montant)}</div>
+        </div>
+      `;
+    });
+    html += `</div>`;
+  }
+
+  // ---- Autoroute ----
+  if (aMois.length > 0) {
+    html += `<div class="recap-section">
+      <div class="recap-section-title">🛣️ Péages / Autoroute</div>`;
+    aMois.sort((a,b)=>a.date.localeCompare(b.date)).forEach(a => {
+      html += `
+        <div class="recap-job-row">
+          <div class="recap-job-info">
+            <div class="recap-job-color" style="background:var(--rose)"></div>
+            <div>
+              <div class="recap-job-name">${a.trajet||'Péage'}</div>
+              <div class="recap-job-sub">${fmtDate(a.date)}${a.boulotId?' · '+getJobName(a.boulotId):''}</div>
+            </div>
+          </div>
+          <div class="recap-job-amount" style="color:var(--rose)">−${fmt(a.montant)}</div>
+        </div>
+      `;
+    });
+    html += `</div>`;
+  }
+
+  // ---- Virements ----
+  if (vMois.length > 0) {
+    html += `<div class="recap-section">
+      <div class="recap-section-title">💳 Virements reçus</div>`;
+    vMois.sort((a,b)=>a.date.localeCompare(b.date)).forEach(v => {
+      const typeLabel = virementTypeLabel(v.type);
+      html += `
+        <div class="recap-job-row">
+          <div class="recap-job-info">
+            <div class="recap-job-color" style="background:${virementTypeColor(v.type)}"></div>
+            <div>
+              <div class="recap-job-name">${v.client||'Virement'} <span style="font-size:11px; font-weight:normal; opacity:0.8; margin-left:6px;">(${typeLabel})</span></div>
+              <div class="recap-job-sub">${fmtDate(v.date)}${v.ref?' · Réf: '+v.ref:''}</div>
+            </div>
+          </div>
+          <div class="recap-job-amount" style="color:${virementTypeColor(v.type)}">${fmt(v.montant)}</div>
+        </div>
+      `;
+    });
+    html += `</div>`;
+  }
+
+  // ---- Totaux ----
+  html += `
+    <div class="recap-divider"></div>
+    <div class="recap-total-row">
+      <div class="recap-total-label">💰 Total journées</div>
+      <div class="recap-total-value" style="color:var(--accent-light)">${fmt(totalJ)}</div>
+    </div>
+    ${totalP>0?`<div class="recap-total-row">
+      <div class="recap-total-label">🏆 Primes</div>
+      <div class="recap-total-value" style="color:var(--amber)">+ ${fmt(totalP)}</div>
+    </div>`:''}
+    ${totalA>0?`<div class="recap-total-row">
+      <div class="recap-total-label">🛣️ Péages (déduire)</div>
+      <div class="recap-total-value" style="color:var(--rose)">− ${fmt(totalA)}</div>
+    </div>`:''}
+    <div class="recap-total-row" style="border-color:var(--emerald); background:linear-gradient(135deg,rgba(16,185,129,0.1),rgba(16,185,129,0.03)); margin-top:8px;">
+      <div class="recap-total-label" style="font-size:18px;">✅ Net du mois</div>
+      <div class="recap-total-value" style="color:var(--emerald); font-size:32px;">${fmt(totalNet)}</div>
+    </div>
+    ${totalV>0?`<div class="recap-total-row" style="border-color:var(--sky);">
+      <div class="recap-total-label">💳 Virements reçus</div>
+      <div class="recap-total-value" style="color:var(--sky)">${fmt(totalV)}</div>
+    </div>`:''}
+    ${reste!==0?`<div class="recap-total-row" style="border-color:${reste>0?'var(--amber)':'var(--emerald)'}">
+      <div class="recap-total-label">${reste>0?'⏳ Reste à recevoir':'✅ Excédent reçu'}</div>
+      <div class="recap-total-value" style="color:${reste>0?'var(--amber)':'var(--emerald)'}">${fmt(Math.abs(reste))}</div>
+    </div>`:''}
+  `;
+
+  if (jMois.length === 0 && pMois.length === 0 && aMois.length === 0 && vMois.length === 0) {
+    html = `<div class="empty-state" style="padding:80px 20px;">
+      <div class="empty-icon">📋</div>
+      <p>Aucune donnée pour ${MONTHS_FR[recapMonth]} ${recapYear}</p>
+      <p style="margin-top:8px; font-size:13px;">Ajoutez des journées, primes ou péages pour ce mois.</p>
+    </div>`;
+  }
+
+  document.getElementById('recapContent').innerHTML = html;
+}
+
+function exportMonthPDF() {
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ orientation:'portrait', unit:'mm', format:'a4' });
+  const moKey = getMonthKey();
+  const monthName = `${MONTHS_FR[recapMonth]} ${recapYear}`;
+
+  const boulotFilter = document.getElementById('recapBoulotFilter').value;
+  const boulotFilterName = boulotFilter ? getJobName(boulotFilter) : '';
+
+  // Client-facing recap: only worked days + tolls to deduct — no primes/virements.
+  const jMois = journees.filter(j => j.date && j.date.startsWith(moKey))
+    .filter(j => !recapTypeFilter || j.type === recapTypeFilter)
+    .filter(j => !boulotFilter || j.boulotId === boulotFilter);
+  const aMois = autoroutes.filter(a => a.date && a.date.startsWith(moKey))
+    .filter(a => !boulotFilter || a.boulotId === boulotFilter);
+
+  const totalJ = jMois.reduce((s,j) => s + calcJourneeAmount(j), 0);
+  const totalA = aMois.reduce((s,a) => s + (parseFloat(a.montant)||0), 0);
+  // Tolls are paid out of pocket while working for this client, so they're
+  // reimbursed on top of the work total, not deducted from it.
+  const totalDu = totalJ + totalA;
+
+  const nbJours  = jMois.filter(j=>j.type==='journee').length;
+  const nbHeures = jMois.filter(j=>j.type==='heure').reduce((s,j)=>s+(parseFloat(j.heures)||0),0);
+
+  // === HEADER BAND ===
+  doc.setFillColor(26, 26, 46);
+  doc.rect(0, 0, 210, 50, 'F');
+
+  // Purple accent bar
+  doc.setFillColor(139, 92, 246);
+  doc.rect(0, 0, 210, 3, 'F');
+
+  doc.setTextColor(255,255,255);
+  doc.setFontSize(24); doc.setFont('helvetica','bold');
+  doc.text('FreelanceTracker', 14, 20);
+  doc.setFontSize(15); doc.setFont('helvetica','normal');
+  doc.text(`Récapitulatif — ${monthName}${boulotFilterName ? ' — ' + boulotFilterName : ''}`, 14, 32);
+  doc.setFontSize(9); doc.setTextColor(150,150,200);
+  doc.text(`Généré le ${new Date().toLocaleDateString('fr-FR')} à ${new Date().toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'})}`, 14, 42);
+
+  let y = 60;
+
+  // === RÉCAP CARD (jours travaillés + péages à rembourser) ===
+  const cardHeight = 56;
+  doc.setFillColor(20, 20, 40);
+  doc.roundedRect(14, y, 182, cardHeight, 4, 4, 'F');
+  doc.setDrawColor(139,92,246); doc.setLineWidth(0.6);
+  doc.roundedRect(14, y, 182, cardHeight, 4, 4, 'S');
+
+  const recapRows = [
+    ['Jours travaillés', `${nbJours}j${nbHeures>0?' + '+nbHeures+'h':''}`],
+    ['Montant (jours travaillés)', fmtPdf(totalJ)],
+    ['Péages avancés (à rembourser)', `+ ${fmtPdf(totalA)}`],
+    ['MONTANT À VERSER', fmtPdf(totalDu)],
+  ];
+
+  const bx = 20; let by = y + 16;
+  recapRows.forEach((r,i) => {
+    const isFinal = i === recapRows.length-1;
+    if (isFinal) {
+      by += 4;
+      doc.setDrawColor(16,185,129); doc.setLineWidth(0.4);
+      doc.line(14, by, 196, by);
+      by += 9;
+    }
+    doc.setFontSize(isFinal?13:10);
+    doc.setFont('helvetica', isFinal?'bold':'normal');
+    doc.setTextColor(isFinal?16:180, isFinal?185:180, isFinal?129:210);
+    doc.text(r[0], bx, by);
+    doc.text(r[1], 186, by, {align:'right'});
+    by += isFinal?0:8;
+  });
+
+  y += cardHeight + 12;
+
+  // === DÉTAIL DES JOURS TRAVAILLÉS ===
+  if (jMois.length > 0) {
+    doc.setFontSize(11); doc.setFont('helvetica','bold'); doc.setTextColor(40,40,70);
+    doc.text('Détail des jours travaillés', 14, y); y += 5;
+
+    const jRows = [...jMois].sort((a,b)=>a.date.localeCompare(b.date)).map(j => [
+      fmtDate(j.date),
+      j.type==='journee'?'Journée':'Heure',
+      formatJourneeDetail(j),
+      fmtPdf(calcJourneeAmount(j)),
+    ]);
+
+    doc.autoTable({
+      startY: y,
+      head: [['Date','Type','Détail','Montant']],
+      body: jRows,
+      theme:'grid',
+      headStyles: { fillColor:[139,92,246], textColor:255, fontStyle:'bold', fontSize:9 },
+      bodyStyles: { fontSize:8.5 },
+      columnStyles: { 3:{ halign:'right', fontStyle:'bold', textColor:[16,185,129] } },
+      foot: [['','','Total jours', fmtPdf(totalJ)]],
+      footStyles: { fillColor:[26,26,46], textColor:[16,185,129], fontStyle:'bold', fontSize:9 },
+      margin: { left:14, right:14 },
+    });
+    y = doc.lastAutoTable.finalY + 10;
+  }
+
+  // === DÉTAIL DES PÉAGES ===
+  if (aMois.length > 0) {
+    if (y > 240) { doc.addPage(); y = 20; }
+    doc.setFontSize(11); doc.setFont('helvetica','bold'); doc.setTextColor(40,40,70);
+    doc.text('Péages avancés (à rembourser)', 14, y); y += 5;
+
+    doc.autoTable({
+      startY: y,
+      head: [['Date','Trajet','Montant']],
+      body: aMois.map(a => [fmtDate(a.date), a.trajet||'—', fmtPdf(a.montant)]),
+      theme:'grid',
+      headStyles: { fillColor:[244,63,94], textColor:255, fontStyle:'bold', fontSize:9 },
+      bodyStyles: { fontSize:8.5 },
+      columnStyles: { 2:{ halign:'right', fontStyle:'bold', textColor:[244,63,94] } },
+      foot: [['','Total péages', fmtPdf(totalA)]],
+      footStyles: { fillColor:[26,26,46], textColor:[244,63,94], fontStyle:'bold', fontSize:9 },
+      margin: { left:14, right:14 },
+    });
+    y = doc.lastAutoTable.finalY + 10;
+  }
+
+  // === FOOTER ===
+  const pageCount = doc.getNumberOfPages();
+  for (let i=1; i<=pageCount; i++) {
+    doc.setPage(i);
+    doc.setFontSize(8); doc.setFont('helvetica','normal'); doc.setTextColor(100,100,140);
+    doc.text(`FreelanceTracker — ${monthName} — Page ${i}/${pageCount}`, 14, 287);
+    doc.text('Auto-entrepreneur', 196, 287, {align:'right'});
+  }
+
+  const fileSuffix = boulotFilterName ? '_' + boulotFilterName.replace(/[^a-zA-Z0-9]+/g,'_') : '';
+  doc.save(`Recap_${recapYear}_${String(recapMonth+1).padStart(2,'0')}_${MONTHS_FR[recapMonth]}${fileSuffix}.pdf`);
+  toast(`PDF ${monthName} téléchargé 📄`);
+}
+
+function exportPDF() {
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ orientation:'portrait', unit:'mm', format:'a4' });
+
+  const yd = getYearData(selectedYear);
+  const totalJournees = yd.journees.reduce((s,j)=>s+calcJourneeAmount(j),0);
+  const totalPrimes = yd.primes.reduce((s,p)=>s+(parseFloat(p.montant)||0),0);
+  const totalAutoroutes = yd.autoroutes.reduce((s,a)=>s+(parseFloat(a.montant)||0),0);
+  const totalVirements = yd.virements.reduce((s,v)=>s+(parseFloat(v.montant)||0),0);
+  const totalBrut = totalJournees + totalPrimes;
+  const totalNet = totalBrut - totalAutoroutes;
+
+  // Header
+  doc.setFillColor(26, 26, 46);
+  doc.rect(0, 0, 210, 40, 'F');
+  doc.setTextColor(255,255,255);
+  doc.setFontSize(22); doc.setFont('helvetica','bold');
+  doc.text('FreelanceTracker', 14, 20);
+  doc.setFontSize(12); doc.setFont('helvetica','normal');
+  doc.text(`Rapport de revenus — ${selectedYear}`, 14, 30);
+  doc.setFontSize(10);
+  doc.text(`Généré le ${new Date().toLocaleDateString('fr-FR')}`, 150, 30);
+
+  let y = 50;
+
+  // Summary boxes
+  doc.setFontSize(14); doc.setFont('helvetica','bold'); doc.setTextColor(40,40,60);
+  doc.text('Résumé annuel', 14, y); y += 8;
+
+  const summaryData = [
+    ['Total journées', fmtPdf(totalJournees)],
+    ['Primes', fmtPdf(totalPrimes)],
+    ['Revenus bruts', fmtPdf(totalBrut)],
+    ['Péages autoroute', `- ${fmtPdf(totalAutoroutes)}`],
+    ['Revenus nets', fmtPdf(totalNet)],
+    ['Virements reçus', fmtPdf(totalVirements)],
+  ];
+
+  doc.autoTable({
+    startY: y,
+    head: [['Catégorie', 'Montant']],
+    body: summaryData,
+    theme: 'grid',
+    headStyles: { fillColor: [139,92,246], textColor:255, fontStyle:'bold' },
+    bodyStyles: { fontSize: 11 },
+    columnStyles: { 1: { halign: 'right', fontStyle:'bold' } },
+    margin: { left:14, right:14 },
+  });
+
+  y = doc.lastAutoTable.finalY + 12;
+
+  // Monthly breakdown
+  doc.setFontSize(13); doc.setFont('helvetica','bold'); doc.setTextColor(40,40,60);
+  doc.text('Détail mensuel', 14, y); y += 6;
+
+  const monthRows = MONTHS_FR.map((name,i) => {
+    const mo = String(i+1).padStart(2,'0');
+    const moKey = `${selectedYear}-${mo}`;
+    const jMois = yd.journees.filter(j => j.date && j.date.startsWith(moKey));
+    const pMois = yd.primes.filter(p => p.mois === moKey);
+    const aMois = yd.autoroutes.filter(a => a.date && a.date.startsWith(moKey));
+    const tJ = jMois.reduce((s,j)=>s+calcJourneeAmount(j),0);
+    const tP = pMois.reduce((s,p)=>s+(parseFloat(p.montant)||0),0);
+    const tA = aMois.reduce((s,a)=>s+(parseFloat(a.montant)||0),0);
+    const nbJ = jMois.filter(j=>j.type==='journee').length;
+    const nbH = jMois.filter(j=>j.type==='heure').reduce((s,j)=>s+(parseFloat(j.heures)||0),0);
+    return [name, `${nbJ}j${nbH>0?' '+nbH+'h':''}`, fmtPdf(tJ), fmtPdf(tP), fmtPdf(tA), fmtPdf(tJ+tP-tA)];
+  });
+
+  doc.autoTable({
+    startY: y,
+    head: [['Mois','Travail','Journées','Primes','Péages','Net']],
+    body: monthRows,
+    theme:'striped',
+    headStyles: { fillColor:[26,26,46], textColor:255 },
+    bodyStyles: { fontSize:9 },
+    columnStyles: { 2:{halign:'right'}, 3:{halign:'right'}, 4:{halign:'right'}, 5:{halign:'right', fontStyle:'bold'} },
+    margin:{ left:14, right:14 },
+  });
+
+  y = doc.lastAutoTable.finalY + 12;
+
+  // Journées detail
+  if (yd.journees.length > 0) {
+    if (y > 240) { doc.addPage(); y = 20; }
+    doc.setFontSize(13); doc.setFont('helvetica','bold'); doc.setTextColor(40,40,60);
+    doc.text('Détail des journées', 14, y); y += 6;
+
+    const jRows = [...yd.journees].sort((a,b)=>a.date.localeCompare(b.date)).map(j => [
+      fmtDate(j.date),
+      getJobName(j.boulotId),
+      j.type==='journee'?'Journée':'Heure',
+      j.type==='journee' ? fmtPdf(j.tarif)+'/j' : j.heures+'h × '+fmtPdf(j.taux),
+      fmtPdf(calcJourneeAmount(j)),
+      j.note || ''
+    ]);
+
+    doc.autoTable({
+      startY: y,
+      head: [['Date','Boulot','Type','Détail','Montant','Note']],
+      body: jRows,
+      theme:'grid',
+      headStyles: { fillColor:[139,92,246], textColor:255 },
+      bodyStyles: { fontSize:8 },
+      columnStyles: { 4:{halign:'right', fontStyle:'bold'} },
+      margin:{ left:14, right:14 },
+    });
+    y = doc.lastAutoTable.finalY + 12;
+  }
+
+  // Virements
+  if (yd.virements.length > 0) {
+    if (y > 240) { doc.addPage(); y = 20; }
+    doc.setFontSize(13); doc.setFont('helvetica','bold'); doc.setTextColor(40,40,60);
+    doc.text('Virements reçus', 14, y); y += 6;
+
+    const vRows = [...yd.virements].sort((a,b)=>a.date.localeCompare(b.date)).map(v => {
+      const ml = v.mois ? (() => { const [yr,m] = v.mois.split('-'); return MONTHS_FR[parseInt(m)-1]+' '+yr; })() : '—';
+      const typeStr = virementTypeLabel(v.type);
+      return [fmtDate(v.date), v.client||'—', getJobName(v.boulotId), typeStr, ml, fmtPdf(v.montant), v.ref||'—'];
+    });
+
+    doc.autoTable({
+      startY: y,
+      head: [['Date','Client','Boulot','Type','Mois facturé','Montant','Référence']],
+      body: vRows,
+      theme:'grid',
+      headStyles: { fillColor:[16,185,129], textColor:255 },
+      bodyStyles: { fontSize:8 },
+      columnStyles: { 5:{halign:'right', fontStyle:'bold'} },
+      margin:{ left:14, right:14 },
+    });
+  }
+
+  // Footer on each page
+  const pageCount = doc.getNumberOfPages();
+  for (let i = 1; i <= pageCount; i++) {
+    doc.setPage(i);
+    doc.setFontSize(8); doc.setTextColor(150,150,170);
+    doc.text(`FreelanceTracker — ${selectedYear} — Page ${i}/${pageCount}`, 14, 287);
+  }
+
+  doc.save(`FreelanceTracker_${selectedYear}.pdf`);
+  toast('PDF téléchargé 📄');
+}
+
+// ======================== UI HELPERS ========================
+
+function toast(msg, type = 'success') {
+  const container = document.getElementById('toastContainer');
+  const el = document.createElement('div');
+  el.className = `toast toast-${type}`;
+  el.innerHTML = `${type==='success'?'✅':'❌'} ${msg}`;
+  container.appendChild(el);
+  setTimeout(() => el.remove(), 3200);
+}
+
+let confirmCallback = null;
+function confirm2(msg, cb) {
+  document.getElementById('confirmText').textContent = msg;
+  confirmCallback = cb;
+  document.getElementById('confirmModal').classList.add('open');
+  document.getElementById('confirmBtn').onclick = () => {
+    closeModal('confirmModal');
+    if (confirmCallback) confirmCallback();
+  };
+}
+
+function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+
+document.getElementById('confirmModal').addEventListener('click', (e) => {
+  if (e.target.id === 'confirmModal') closeModal('confirmModal');
+});
+
+document.getElementById('dayModal').addEventListener('click', (e) => {
+  if (e.target.id === 'dayModal') closeModal('dayModal');
+});
+
+function refreshAll() {
+  renderDashboard();
+  renderJourneesTable();
+  renderPrimesTable();
+  renderAutorouteTable();
+  renderVirementsTable();
+  renderBoulots();
+}
+
+// ======================== INIT ========================
+
+// ======================== INIT ========================
+
+let authMode = 'login'; // 'login', 'signup', 'reset'
+
+function renderAuthFields() {
+  const container = document.getElementById('authFields');
+  const forgotLink = document.getElementById('forgotPasswordLinkContainer');
+  const title = document.getElementById('authTitle');
+  const subtitle = document.getElementById('authSubtitle');
+  const btn = document.getElementById('authSubmitBtn');
+  const footer = document.getElementById('authFooter');
+
+  if (authMode === 'login') {
+    title.textContent = "Se connecter";
+    subtitle.textContent = "Gérez vos revenus d'auto-entrepreneur";
+    btn.textContent = "Se connecter";
+    forgotLink.style.display = 'block';
+    footer.innerHTML = `Pas encore de compte ? <span class="auth-toggle-link" onclick="setAuthMode('signup')">S'inscrire</span>`;
+    
+    container.innerHTML = `
+      <div class="form-group" style="margin-bottom: 16px; text-align: left;">
+        <label class="form-label" for="auth-login">Nom d'utilisateur ou E-mail</label>
+        <input type="text" class="form-input" id="auth-login" required placeholder="ex: mon_pseudo ou nom@exemple.com" />
+      </div>
+      <div class="form-group" style="margin-bottom: 24px; text-align: left;">
+        <label class="form-label" for="auth-password">Mot de passe</label>
+        <input type="password" class="form-input" id="auth-password" required placeholder="••••••••" />
+      </div>
+    `;
+  } else if (authMode === 'signup') {
+    title.textContent = "Créer un compte";
+    subtitle.textContent = "Inscrivez-vous pour sauvegarder vos données";
+    btn.textContent = "S'inscrire";
+    forgotLink.style.display = 'none';
+    footer.innerHTML = `Déjà un compte ? <span class="auth-toggle-link" onclick="setAuthMode('login')">Se connecter</span>`;
+
+    container.innerHTML = `
+      <div class="form-group" style="margin-bottom: 16px; text-align: left;">
+        <label class="form-label" for="auth-username">Nom d'utilisateur</label>
+        <input type="text" class="form-input" id="auth-username" required placeholder="ex: mon_pseudo" pattern="^[a-zA-Z0-9_]{3,20}$" title="De 3 à 20 caractères alphanumériques ou ( _ )" />
+      </div>
+      <div class="form-group" style="margin-bottom: 16px; text-align: left;">
+        <label class="form-label" for="auth-email">Adresse e-mail</label>
+        <input type="email" class="form-input" id="auth-email" required placeholder="nom@exemple.com" />
+      </div>
+      <div class="form-group" style="margin-bottom: 16px; text-align: left;">
+        <label class="form-label" for="auth-password">Mot de passe</label>
+        <input type="password" class="form-input" id="auth-password" required placeholder="••••••••" minlength="6" />
+      </div>
+      <div class="form-group" style="margin-bottom: 24px; text-align: left;">
+        <label class="form-label" for="auth-confirm-password">Confirmer le mot de passe</label>
+        <input type="password" class="form-input" id="auth-confirm-password" required placeholder="••••••••" minlength="6" />
+      </div>
+    `;
+  } else if (authMode === 'reset') {
+    title.textContent = "Réinitialiser le mot de passe";
+    subtitle.textContent = "Entrez votre e-mail pour recevoir le lien de réinitialisation";
+    btn.textContent = "Réinitialiser le mot de passe";
+    forgotLink.style.display = 'none';
+    footer.innerHTML = `Retour à la <span class="auth-toggle-link" onclick="setAuthMode('login')">connexion</span>`;
+
+    container.innerHTML = `
+      <div class="form-group" style="margin-bottom: 24px; text-align: left;">
+        <label class="form-label" for="auth-email">Adresse e-mail du compte</label>
+        <input type="email" class="form-input" id="auth-email" required placeholder="nom@exemple.com" />
+      </div>
+    `;
+  }
+}
+
+function setAuthMode(mode) {
+  authMode = mode;
+  renderAuthFields();
+}
+
+function handleAuth(event) {
+  event.preventDefault();
+
+  if (authMode === 'signup') {
+    const username = document.getElementById('auth-username').value.trim();
+    const email = document.getElementById('auth-email').value.trim();
+    const password = document.getElementById('auth-password').value;
+    const confirmPassword = document.getElementById('auth-confirm-password').value;
+
+    if (!username || !email || !password || !confirmPassword) {
+      toast("Veuillez remplir tous les champs", "error");
+      return;
+    }
+
+    if (password !== confirmPassword) {
+      toast("Les mots de passe ne correspondent pas", "error");
+      return;
+    }
+
+    if (isFirebaseEnabled) {
+      // Check Firestore if username is already taken
+      db.collection("usernames").doc(username).get().then(uDoc => {
+        if (uDoc.exists) {
+          toast("Ce nom d'utilisateur est déjà pris", "error");
+          return;
+        }
+        
+        auth.createUserWithEmailAndPassword(email, password)
+          .then(userCredential => {
+            const userId = userCredential.user.uid;
+            db.collection("users").doc(userId).set({
+              username: username,
+              email: email,
+              journees: [],
+              primes: [],
+              autoroutes: [],
+              virements: [],
+              boulots: []
+            }).then(() => {
+              db.collection("usernames").doc(username).set({
+                email: email
+              }).then(() => {
+                toast("Compte créé avec succès !");
+              });
+            });
+          })
+          .catch(error => {
+            toast(error.message, "error");
+          });
+      }).catch(err => {
+        console.error("Firestore error:", err);
+        toast("Erreur lors de la vérification du pseudonyme", "error");
+      });
+    } else {
+      // Local Mock Signup
+      const allUsers = JSON.parse(localStorage.getItem('ft_users') || '{}');
+      const isUsernameTaken = Object.values(allUsers).some(u => u.username && u.username.toLowerCase() === username.toLowerCase());
+      if (isUsernameTaken) {
+        toast("Ce nom d'utilisateur est déjà pris", "error");
+        return;
+      }
+      if (allUsers[email]) {
+        toast("Cette adresse e-mail est déjà associée à un compte", "error");
+        return;
+      }
+      allUsers[email] = {
+        username: username,
+        password: password,
+        journees: [],
+        primes: [],
+        autoroutes: [],
+        virements: [],
+        boulots: []
+      };
+      localStorage.setItem('ft_users', JSON.stringify(allUsers));
+      localStorage.setItem('ft_currentUser', email);
+      currentUser = { email, username };
+      toast("Compte créé localement !");
+      loginSuccess();
+    }
+  } else if (authMode === 'login') {
+    const loginVal = document.getElementById('auth-login').value.trim();
+    const password = document.getElementById('auth-password').value;
+
+    if (!loginVal || !password) {
+      toast("Veuillez remplir tous les champs", "error");
+      return;
+    }
+
+    if (isFirebaseEnabled) {
+      if (!loginVal.includes('@')) {
+        // Find email by username
+        db.collection("usernames").doc(loginVal).get().then(uDoc => {
+          if (!uDoc.exists) {
+            toast("Ce nom d'utilisateur n'existe pas", "error");
+            return;
+          }
+          const resolvedEmail = uDoc.data().email;
+          auth.signInWithEmailAndPassword(resolvedEmail, password)
+            .then(() => {
+              toast("Connexion réussie !");
+            })
+            .catch(error => {
+              toast(error.message, "error");
+            });
+        }).catch(err => {
+          console.error(err);
+          toast("Erreur de connexion", "error");
+        });
+      } else {
+        auth.signInWithEmailAndPassword(loginVal, password)
+          .then(() => {
+            toast("Connexion réussie !");
+          })
+          .catch(error => {
+            toast(error.message, "error");
+          });
+      }
+    } else {
+      // Local Mock Login
+      const allUsers = JSON.parse(localStorage.getItem('ft_users') || '{}');
+      let userEntry = null;
+      let userEmail = null;
+      if (loginVal.includes('@')) {
+        userEntry = allUsers[loginVal];
+        userEmail = loginVal;
+      } else {
+        userEmail = Object.keys(allUsers).find(email => allUsers[email].username && allUsers[email].username.toLowerCase() === loginVal.toLowerCase());
+        if (userEmail) {
+          userEntry = allUsers[userEmail];
+        }
+      }
+      if (!userEntry || userEntry.password !== password) {
+        toast("Identifiants incorrects", "error");
+        return;
+      }
+      localStorage.setItem('ft_currentUser', userEmail);
+      currentUser = { email: userEmail, username: userEntry.username };
+      toast("Connexion réussie !");
+      loginSuccess();
+    }
+  } else if (authMode === 'reset') {
+    const email = document.getElementById('auth-email').value.trim();
+    if (!email) {
+      toast("Veuillez entrer une adresse e-mail", "error");
+      return;
+    }
+
+    if (isFirebaseEnabled) {
+      auth.sendPasswordResetEmail(email)
+        .then(() => {
+          toast("E-mail de réinitialisation envoyé !");
+          setAuthMode('login');
+        })
+        .catch(error => {
+          toast(error.message, "error");
+        });
+    } else {
+      // Local Mock Password recovery
+      const allUsers = JSON.parse(localStorage.getItem('ft_users') || '{}');
+      const userEntry = allUsers[email];
+      if (!userEntry) {
+        toast("Aucun compte associé à cette adresse e-mail", "error");
+        return;
+      }
+      alert(`Mode Hors-ligne : Votre mot de passe actuel est : ${userEntry.password}`);
+      setAuthMode('login');
+    }
+  }
+}
+
+function loginSuccess() {
+  document.getElementById('authPage').style.display = 'none';
+  document.getElementById('appWrapper').style.display = 'block';
+  
+  // If username exists, use it, else default to email
+  if (currentUser) {
+    if (isFirebaseEnabled && auth.currentUser) {
+      const userId = auth.currentUser.uid;
+      db.collection("users").doc(userId).get().then(doc => {
+        if (doc.exists) {
+          currentUser.username = doc.data().username || '';
+        }
+        document.getElementById('userEmailDisplay').textContent = currentUser.username || currentUser.email;
+      });
+    } else {
+      const allUsers = JSON.parse(localStorage.getItem('ft_users') || '{}');
+      const userData = allUsers[currentUser.email] || {};
+      currentUser.username = userData.username || '';
+      document.getElementById('userEmailDisplay').textContent = currentUser.username || currentUser.email;
+    }
+  }
+  
+  loadUserData();
+}
+
+function logoutUser() {
+  if (isFirebaseEnabled) {
+    auth.signOut().then(() => {
+      toast("Déconnexion réussie");
+    });
+  } else {
+    localStorage.removeItem('ft_currentUser');
+    currentUser = null;
+    toast("Déconnexion réussie");
+    showLoginScreen();
+  }
+}
+
+function showLoginScreen() {
+  document.getElementById('authPage').style.display = 'flex';
+  document.getElementById('appWrapper').style.display = 'none';
+  document.getElementById('userEmailDisplay').textContent = '';
+  setAuthMode('login');
+}
+
+function init() {
+  initFirebase();
+  
+  if (isFirebaseEnabled) {
+    auth.onAuthStateChanged(user => {
+      if (user) {
+        currentUser = user;
+        loginSuccess();
+      } else {
+        showLoginScreen();
+      }
+    });
+  } else {
+    const email = localStorage.getItem('ft_currentUser');
+    if (email) {
+      currentUser = { email };
+      loginSuccess();
+    } else {
+      showLoginScreen();
+    }
+  }
+
+  // Set default dates
+  const today = new Date().toISOString().split('T')[0];
+  const todayMonth = today.slice(0,7);
+  ['j-date','a-date','v-date'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.value = today;
+  });
+  ['p-mois','v-mois'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.value = todayMonth;
+  });
+}
+
+init();
+</script>
+</body>
+</html>
